@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdapterConfig } from './config';
 import type { Candidate, Evidence, FileRecord, CollectorStatus, Severity } from './types';
@@ -132,7 +132,7 @@ export function collectEslint(repoRoot: string, cfg: AdapterConfig): { candidate
       totalMessages++;
       if (!m.ruleId) continue; // skip parse errors / inline-disable noise
       const key = m.ruleId as string;
-      const entry = byRule.get(key) ?? { ev: [], sample: m.message ?? key };
+      const entry = byRule.get(key) ?? { ev: [] as Evidence[], sample: m.message ?? key };
       entry.ev.push({ file: rel, line: m.line ?? 1, snippet: String(m.message ?? '').slice(0, MAX_SNIPPET) });
       byRule.set(key, entry);
     }
@@ -223,6 +223,70 @@ export function collectOrphans(orphans: string[]): { candidates: Candidate[]; st
     'Confirm whether it is referenced dynamically; remove if truly unused.'
   );
   return { candidates: [c], status: { id: 'graph', ran: true, candidates: 1 } };
+}
+
+// --- test coverage collector (real Jest/Istanbul coverage %, not a defect scan) ---
+//
+// Coverage % is a continuous quality metric, not a discrete defect — unlike
+// every other collector here, it never becomes a severity-weighted Candidate.
+// It's surfaced as its own artifact (coverage-summary.json) and reported
+// alongside coverage.reviewedPct in the report's Coverage section instead
+// (see report.ts / scorer.ts), so a codebase isn't penalized on the same
+// scale as a security vulnerability just for having an untested file.
+export interface LowCoverageFile {
+  file: string; // repo-relative
+  pct: number; // line-coverage percentage
+}
+
+export interface TestCoverageResult {
+  ran: boolean;
+  note?: string; // why it didn't run, or a one-line summary
+  overallPct?: number;
+  threshold: number;
+  lowCoverageFiles: LowCoverageFile[];
+}
+
+// Pure: turns an Istanbul/Jest `coverage-summary.json` object into the
+// repo-relative low-coverage file list. Separated from collectTestCoverage so
+// the parsing logic is unit-testable without shelling out to a real test run.
+export function parseCoverageSummary(
+  summary: any,
+  repoRoot: string,
+  threshold: number
+): { overallPct: number; lowCoverageFiles: LowCoverageFile[] } {
+  const overallPct = Number(summary?.total?.lines?.pct) || 0;
+  const lowCoverageFiles: LowCoverageFile[] = [];
+  for (const [key, value] of Object.entries(summary ?? {})) {
+    if (key === 'total') continue;
+    const pct = (value as any)?.lines?.pct;
+    if (typeof pct !== 'number' || pct >= threshold) continue;
+    const rel = (key.startsWith(repoRoot) ? key.slice(repoRoot.length) : key).replace(/^[/\\]+/, '').split('\\').join('/');
+    lowCoverageFiles.push({ file: rel, pct });
+  }
+  lowCoverageFiles.sort((a, b) => a.pct - b.pct);
+  return { overallPct, lowCoverageFiles };
+}
+
+export function collectTestCoverage(repoRoot: string, cfg: AdapterConfig): TestCoverageResult {
+  const threshold = cfg.coverageThreshold;
+  // Don't gate on the test command's exit code or stdout: a suite with failing
+  // tests (or one that prints nothing useful to stdout) still writes the
+  // coverage summary file we actually need, as long as it got far enough to
+  // collect coverage. The summary file's presence is the real signal.
+  const r = spawnSync(cfg.testCoverageCmd, { cwd: repoRoot, encoding: 'utf8', shell: true, timeout: EXEC_TIMEOUT, maxBuffer: MAX_BUFFER });
+  const summaryPath = join(repoRoot, cfg.coverageSummaryPath);
+  if (!existsSync(summaryPath)) {
+    const reason = r.error?.message ?? `no file at ${cfg.coverageSummaryPath}`;
+    return { ran: false, threshold, lowCoverageFiles: [], note: `coverage summary not produced: ${reason}` };
+  }
+  let parsed: any;
+  try {
+    parsed = JSON.parse(readFileSync(summaryPath, 'utf8'));
+  } catch {
+    return { ran: false, threshold, lowCoverageFiles: [], note: `${cfg.coverageSummaryPath} was not valid JSON` };
+  }
+  const { overallPct, lowCoverageFiles } = parseCoverageSummary(parsed, repoRoot, threshold);
+  return { ran: true, threshold, overallPct, lowCoverageFiles, note: `${overallPct.toFixed(1)}% overall line coverage, ${lowCoverageFiles.length} file(s) below ${threshold}%` };
 }
 
 // Merge candidate lists. Light dedupe: collapse the known regex/eslint overlap

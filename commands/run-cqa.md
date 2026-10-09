@@ -22,7 +22,7 @@ If `${CLAUDE_PROJECT_DIR}/.claude/cqa/manifest.json` already exists, move the en
 
 Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/index.ts" "${CLAUDE_PROJECT_DIR}"`
 
-This writes `manifest.json` and `candidates.json` into the project's `.claude/cqa/`. If it fails with "no stack adapter matched this repo," stop and report that back — it means this project's stack isn't supported yet (check `${CLAUDE_PLUGIN_ROOT}/tools/cqa/config.ts`'s adapter registry and `PLAN.md`'s TODO list for what's planned), don't try to force it.
+This writes `manifest.json` and `candidates.json` into the project's `.claude/cqa/`, and — if the adapter's `testCoverage` collector is enabled — runs the project's own test suite with coverage and writes `coverage-summary.json` (this can take a while on a large suite; it's expected). If it fails with "no stack adapter matched this repo," stop and report that back — it means this project's stack isn't supported yet (check `${CLAUDE_PLUGIN_ROOT}/tools/cqa/config.ts`'s adapter registry and `PLAN.md`'s TODO list for what's planned), don't try to force it.
 
 Sanity-check: spot-check a few `workUnits` entries in the new `manifest.json` and confirm `crossClusterEdges` is populated (non-empty array) on at least some units — if the field is missing entirely or empty on every unit, the deterministic driver's graph step may be broken; stop and report rather than continuing into a reconciliation pass with nothing to review.
 
@@ -62,6 +62,12 @@ Process **every** group in `targetGroups`, exhaustively — never pre-filter by 
 
 If cost genuinely forces a reduced scope on a given run, that must be an explicit, disclosed choice you report back at the end (e.g. "reviewed the top N target groups by fan-in, skipped M") — never a silent partial pass presented as if it were complete.
 
+## Step 7.5 — Storybook coverage (optional, skip if the project has no stories)
+
+Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/prepare-storybook-coverage.ts" "${CLAUDE_PROJECT_DIR}"` → `storybook-coverage-input.json`.
+
+If `pairsWithGaps` is empty (no colocated `.stories.tsx` files, or every one already exercises its component's full prop surface), write `${CLAUDE_PROJECT_DIR}/.claude/cqa/storybook-coverage-findings.json` as `[]` directly and skip straight to Step 8 — no subagents needed. Otherwise dispatch one subagent per batch in `batches`, **model sonnet, foreground, batched per the operational rule above**, each following `${CLAUDE_PLUGIN_ROOT}/tools/cqa/STORYBOOK_COVERAGE.md`'s "Per-batch task" exactly for its slice of `pairsWithGaps` (looked up by `pairId`) and writing `${CLAUDE_PROJECT_DIR}/.claude/cqa/storybook-units/<batchId>.findings.json`. This is a coverage-gap check, not a story-quality review — do not let it drift into commenting on story structure or naming. Then run `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/merge-storybook-coverage.ts" "${CLAUDE_PROJECT_DIR}"` → `storybook-coverage-findings.json`.
+
 ## Step 8 — Holistic synthesis
 
 Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/prepare-holistic.ts" "${CLAUDE_PROJECT_DIR}"` → `holistic-input.json`.
@@ -97,6 +103,6 @@ Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/scorer.ts" "${CLAUDE_PROJECT_DIR}
 
 ## Step 12 — Verify and summarize
 
-Confirm all of these exist under `${CLAUDE_PROJECT_DIR}/.claude/cqa/` (`project-docs-brief.json` may legitimately have empty `entries` if no project docs were worth summarizing, but the file itself must exist): `manifest.json`, `candidates.json`, `version-brief.json`, `project-docs-brief.json`, `discovery-findings.json`, `unit-summaries.json`, `findings.json`, `discovery-findings.judged.json`, `reconciliation-findings.json`, `holistic.json`, `refute-result.json`, `score.json`, `cost.json`, `report.html`.
+Confirm all of these exist under `${CLAUDE_PROJECT_DIR}/.claude/cqa/` (`project-docs-brief.json` may legitimately have empty `entries` if no project docs were worth summarizing, and `storybook-coverage-findings.json` may legitimately be `[]`, but both files must exist): `manifest.json`, `candidates.json`, `version-brief.json`, `project-docs-brief.json`, `discovery-findings.json`, `unit-summaries.json`, `findings.json`, `discovery-findings.judged.json`, `reconciliation-findings.json`, `storybook-coverage-findings.json`, `holistic.json`, `refute-result.json`, `score.json`, `cost.json`, `report.html`. `coverage-summary.json` exists only if the adapter's `testCoverage` collector is enabled — don't treat its absence as an error otherwise.
 
 Report back to the user: the overall grade, per-category grades, total scored findings (AI-found vs tool-found split), and the cost estimate — then tell them `.claude/cqa/report.html` (in their own project) is ready and offer to open it.

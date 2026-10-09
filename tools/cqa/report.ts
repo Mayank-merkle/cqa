@@ -37,6 +37,20 @@ interface CostData {
   caveat: string;
 }
 
+interface TestCoverageData {
+  ran: boolean;
+  note?: string;
+  overallPct?: number;
+  threshold: number;
+  lowCoverageFiles: { file: string; pct: number }[];
+}
+
+interface StorybookGap {
+  component: string;
+  prop: string;
+  description: string;
+}
+
 interface ReportInput {
   score: ScoreData;
   findings: JudgedFinding[];
@@ -44,6 +58,8 @@ interface ReportInput {
   executiveSummary: string;
   coverage: Coverage;
   cost?: CostData;
+  testCoverage?: TestCoverageData;
+  storybookGaps?: StorybookGap[];
 }
 
 function esc(s: string): string {
@@ -201,6 +217,41 @@ function costSectionHtml(cost: CostData): string {
       <p class="dep-summary">${esc(cost.caveat)}</p>
     </div>
   </section>`;
+}
+
+// Real Jest/Istanbul line coverage — reported here, never severity-weighted
+// (a continuous % isn't a discrete defect; see collectors.ts's TestCoverageResult).
+function testCoverageHtml(tc: TestCoverageData): string {
+  if (!tc.ran) {
+    return `<h4>Test coverage</h4><p class="empty">Not measured this run${tc.note ? ` — ${esc(tc.note)}` : ''}.</p>`;
+  }
+  const rows = tc.lowCoverageFiles
+    .slice(0, 20)
+    .map((f) => `<tr><td class="mono">${esc(f.file)}</td><td>${f.pct.toFixed(1)}%</td></tr>`)
+    .join('\n');
+  const more = tc.lowCoverageFiles.length > 20 ? `<p class="empty">...and ${tc.lowCoverageFiles.length - 20} more below ${tc.threshold}%.</p>` : '';
+  return `
+  <h4>Test coverage</h4>
+  <p>${(tc.overallPct ?? 0).toFixed(1)}% overall line coverage. ${tc.lowCoverageFiles.length} file(s) below the ${tc.threshold}% threshold:</p>
+  <table class="exclusion-table"><thead><tr><th>File</th><th>Line coverage</th></tr></thead><tbody>${rows}</tbody></table>
+  ${more}`;
+}
+
+// Storybook prop/variant coverage gaps — a coverage-gap check, not a
+// story-quality opinion; also reported rather than scored, same reasoning as
+// Jest coverage above.
+function storybookGapsHtml(gaps: StorybookGap[]): string {
+  if (!gaps.length) return '<h4>Storybook prop coverage</h4><p class="empty">No gaps found (or this run had no colocated component/story pairs).</p>';
+  const rows = gaps
+    .slice(0, 30)
+    .map((g) => `<tr><td class="mono">${esc(g.component)}</td><td class="mono">${esc(g.prop)}</td><td>${esc(g.description)}</td></tr>`)
+    .join('\n');
+  const more = gaps.length > 30 ? `<p class="empty">...and ${gaps.length - 30} more.</p>` : '';
+  return `
+  <h4>Storybook prop coverage</h4>
+  <p>${gaps.length} prop(s)/variant(s) not exercised by any <code>.stories.tsx</code> for their component:</p>
+  <table class="exclusion-table"><thead><tr><th>Component</th><th>Prop</th><th>Gap</th></tr></thead><tbody>${rows}</tbody></table>
+  ${more}`;
 }
 
 export function renderReport(input: ReportInput): string {
@@ -460,6 +511,8 @@ export function renderReport(input: ReportInput): string {
       </table>
       <h4>Not measured this run</h4>
       <ul>${notMeasuredRows}</ul>
+      ${input.testCoverage ? testCoverageHtml(input.testCoverage) : ''}
+      ${input.storybookGaps ? storybookGapsHtml(input.storybookGaps) : ''}
     </div>
   </section>
 
@@ -521,6 +574,8 @@ function main() {
   const manifest = readJSON(join(dir, 'manifest.json'));
   const holistic = tryJSON(join(dir, 'holistic.json'), { observations: [] });
   const cost: CostData | undefined = tryJSON(join(dir, 'cost.json'), undefined);
+  const testCoverage: TestCoverageData | undefined = tryJSON(join(dir, 'coverage-summary.json'), undefined);
+  const storybookGaps: StorybookGap[] | undefined = tryJSON(join(dir, 'storybook-coverage-findings.json'), undefined);
 
   const refutedIds = new Set<string>(refuteResult.refuted.map((r: { id: string }) => r.id));
   const findings: JudgedFinding[] = [...staticFindings.confirmed, ...discoveryFindings.confirmed, ...reconciliation].filter(
@@ -545,7 +600,7 @@ function main() {
 
   const executiveSummary = holistic.observations?.[0]?.assessment ?? 'No holistic synthesis available for this run.';
 
-  const html = renderReport({ score, findings, dismissed, executiveSummary, coverage: manifest.coverage, cost });
+  const html = renderReport({ score, findings, dismissed, executiveSummary, coverage: manifest.coverage, cost, testCoverage, storybookGaps });
   writeFileSync(join(dir, 'report.html'), html);
   console.log(`[cqa] report.html written (${findings.length} scored findings, grade ${score.overall.grade})`);
 }

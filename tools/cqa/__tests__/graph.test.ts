@@ -16,9 +16,12 @@ const cfg: AdapterConfig = {
   charsPerToken: 4,
   unitTokenBudget: 12000,
   notMeasured: [],
-  collectors: { regex: false, eslint: false, npmAudit: false, orphans: false },
+  collectors: { regex: false, eslint: false, npmAudit: false, orphans: false, testCoverage: false },
   eslintCmd: '',
   npmAuditCmd: '',
+  testCoverageCmd: '',
+  coverageSummaryPath: 'coverage/coverage-summary.json',
+  coverageThreshold: 80,
 };
 
 function fileRecord(path: string, role: FileRecord['role']): FileRecord {

@@ -35,7 +35,14 @@ brief takes precedence over generic pattern-matching**: if a doc explains
 documented workaround for a response-size limit, not an accidental N+1),
 do not flag the documented pattern as a bug — a project's own stated
 rationale beats a surface-level resemblance to a known anti-pattern every
-time. Look for:
+time.
+
+Use the "Look for" list below that matches the unit's stack — read it off
+`.claude/cqa/manifest.json`'s `stack` field (or the per-workspace manifest's
+`stack` field, for a monorepo scan). These are variants of the same task, not
+separate passes — run exactly one per unit, matching its stack.
+
+### Look for (stack: `next-contentful`)
 - N+1 / sequential data fetching that should be parallel or batched —
   *unless* a project doc already explains why it's structured that way
 - Missing cleanup → leaks (effects, subscriptions, listeners, timers)
@@ -46,6 +53,32 @@ time. Look for:
 - Race conditions, unhandled rejections, swallowed errors
 - Business-logic smells visible in the code (not business-rule correctness —
   that's a later v2 pass)
+
+### Look for (stack: `aws-lambda-cdk`)
+- Cold-start-sensitive initialization done outside the handler's module scope
+  in a way that's actually *harmful* (e.g. a per-invocation secret fetch or
+  connection setup that should be hoisted to module scope to be reused across
+  warm invocations) — not simply "there's code above the handler", which is
+  the normal and correct place for a reused client/connection
+- AppSync resolver (`functions/*.js`, `resolvers/*.js`) or Lambda-backed
+  resolver logic that does N+1 data fetching per item instead of batching
+  (e.g. a per-record SSM/DynamoDB/API call inside a loop over a GraphQL list
+  field) — unless a project doc already explains why
+- Missing or clearly inadequate failure handling for async/event-driven
+  infra: no DLQ or retry policy on a queue/event-driven Lambda, an
+  unhandled-rejection path that would silently drop an event
+- Overly broad IAM — `iam.PolicyStatement` / grants using `actions: ['*']`,
+  wildcard resources (`resource: '*'`) where the construct could scope to a
+  specific ARN, or a Lambda given a managed admin-style policy for a
+  narrow task
+- Secrets or credentials read from a plain environment variable / hardcoded
+  in CDK code instead of Secrets Manager, SSM SecureString, or a CDK secret
+  construct
+- Unbounded `Promise.all`/concurrent fan-out from a batch event
+  (SQS/EventBridge/S3) with no concurrency cap, risking throttling
+  downstream services
+- Deprecated-by-version CDK/AWS SDK v2 vs v3 API usage for the versions this
+  repo runs
 
 Rules:
 - Anchor EVERY finding to a real `file` + `line` with the verbatim line as

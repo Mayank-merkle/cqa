@@ -48,6 +48,11 @@ function main() {
   const discoveryFindings = tryJSON(join(dir, 'discovery-findings.judged.json'), { confirmed: [], needsContext: [] });
   const reconciliation: Candidate[] = tryJSON(join(dir, 'reconciliation-findings.json'), []);
   const refuteResult: RefuteResult = tryJSON(join(dir, 'refute-result.json'), { stands: [], refuted: [] });
+  // Coverage (Jest % and Storybook prop/variant gaps) is reported, never
+  // severity-weighted — see the comment on TestCoverageResult in collectors.ts
+  // for why a continuous metric doesn't belong in the defect-density score.
+  const testCoverage = tryJSON(join(dir, 'coverage-summary.json'), undefined);
+  const storybookCoverage = tryJSON(join(dir, 'storybook-coverage-findings.json'), undefined);
 
   const refutedIds = new Set(refuteResult.refuted.map((r) => r.id));
   const scorable = collectScorableFindings({
@@ -68,6 +73,11 @@ function main() {
     excludedFromScore: {
       refuted: refutedIds.size,
       needsContext: (staticFindings.needsContext?.length ?? 0) + (discoveryFindings.needsContext?.length ?? 0),
+    },
+    // Reported, not scored — see the comment above where these are read.
+    coverage: {
+      testCoverage: testCoverage ?? null,
+      storybookGaps: Array.isArray(storybookCoverage) ? storybookCoverage.length : null,
     },
   };
 

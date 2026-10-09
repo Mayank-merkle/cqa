@@ -3,7 +3,7 @@
 // the pipeline is stack-agnostic.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 export interface AdapterConfig {
   id: string;
@@ -25,9 +25,19 @@ export interface AdapterConfig {
     eslint: boolean;
     npmAudit: boolean;
     orphans: boolean;
+    testCoverage: boolean;
   };
   eslintCmd: string; // produces eslint JSON on stdout
   npmAuditCmd: string; // produces npm audit JSON on stdout
+  // Runs the project's own test suite with coverage enabled. Adapter-specific
+  // because the test runner (and its coverage flags) isn't necessarily Jest —
+  // the collector never hardcodes `--coverage` itself, it just invokes this.
+  testCoverageCmd: string;
+  // Repo-relative path to the Istanbul/Jest-style json-summary coverage file
+  // the command above produces (e.g. `coverage/coverage-summary.json`).
+  coverageSummaryPath: string;
+  // Line-coverage percentage below which a file is flagged as low-coverage.
+  coverageThreshold: number;
 }
 
 // All dependencies (prod + dev) declared in repoRoot/package.json. Shared by
@@ -60,6 +70,26 @@ function hasDependency(repoRoot: string, name: string): boolean {
   } catch {
     return false;
   }
+}
+
+// A CDK app's `cdk.json` lives at the CDK app root (e.g. `hotel-api/cdk/cdk.json`),
+// but a Lambda handler package nested under it (e.g.
+// `hotel-api/cdk/lambdas/getCurrency`) is its own npm workspace — it has its
+// own package.json (which is how findWorkspaceRoots finds it) but often has
+// none of its own aws-cdk-lib/aws-lambda markers. Verified against the real
+// DotcomV2-AppSync monorepo: packages like `profile-api/cdk/lambdas/getAgentProfile`
+// and `ssm-params/lambdas/appConfig` depend on nothing but `axios`. Walking a
+// bounded number of ancestor directories looking for the CDK app's own
+// cdk.json catches these without guessing from dependencies that aren't there.
+function hasAncestorCdkJson(repoRoot: string, maxLevels = 3): boolean {
+  let dir = repoRoot;
+  for (let i = 0; i < maxLevels; i++) {
+    const parent = dirname(dir);
+    if (parent === dir) return false; // reached filesystem root
+    dir = parent;
+    if (existsSync(join(dir, 'cdk.json'))) return true;
+  }
+  return false;
 }
 
 export const nextContentful: AdapterConfig = {
@@ -102,15 +132,88 @@ export const nextContentful: AdapterConfig = {
     'Runtime performance'
   ],
 
-  collectors: { regex: true, eslint: true, npmAudit: true, orphans: true },
+  collectors: { regex: true, eslint: true, npmAudit: true, orphans: true, testCoverage: true },
   eslintCmd: 'npx eslint "src/**/*.{ts,tsx,js,jsx}" --format json',
-  npmAuditCmd: 'npm audit --json'
+  npmAuditCmd: 'npm audit --json',
+  testCoverageCmd: 'npm test -- --coverage --coverageReporters=json-summary',
+  coverageSummaryPath: 'coverage/coverage-summary.json',
+  coverageThreshold: 80
+};
+
+// AWS Lambda/AppSync/CDK adapter, verified against the real DotcomV2-AppSync
+// monorepo (~33 independently-deployable services, no root package.json).
+// That repo is NOT uniform: a CDK app root (e.g. `hotel-api/cdk`) declares
+// aws-cdk-lib and has its own `cdk.json`; a Lambda handler package nested
+// under it (e.g. `hotel-api/cdk/lambdas/getCurrency`) is a separate npm
+// workspace that may declare `aws-lambda`/`@types/aws-lambda` itself, or may
+// declare nothing AWS-specific at all (just `axios`) and only be identifiable
+// by its CDK-app ancestor's cdk.json (see hasAncestorCdkJson above). A plain
+// Express service with no AWS deps anywhere in its tree (e.g.
+// `contentful-search`) correctly matches neither condition and falls through
+// to "no adapter matched" rather than being guessed into this stack.
+export const awsLambdaCdk: AdapterConfig = {
+  id: 'aws-lambda-cdk',
+  detect: (repoRoot) =>
+    existsSync(join(repoRoot, 'cdk.json')) ||
+    hasDependency(repoRoot, 'aws-cdk-lib') ||
+    hasDependency(repoRoot, 'aws-lambda') ||
+    hasDependency(repoRoot, '@types/aws-lambda') ||
+    hasAncestorCdkJson(repoRoot),
+  srcDir: '.',
+  alias: {},
+  extensions: ['.ts', '.js', '.mjs'],
+
+  // Grounded in the real repo's actual layout, not generic AWS convention —
+  // it uses `lambdas/<name>/index.ts`, not `handler.ts`.
+  entryMatchers: [
+    /\/bin\/[^/]+\.(t|j)s$/, // CDK app entry point (e.g. bin/hotel-api.ts)
+    /\/lib\/.*(stack|construct)\.(t|j)s$/, // CDK stack/construct definitions
+    /\/lambdas\/[^/]+\/index\.(t|j)s$/, // Lambda handler, scanned from a CDK app root
+    /^\/index\.(t|j)s$/ // Lambda handler, scanned as its own leaf workspace (e.g. getCurrency)
+  ],
+
+  skip: [
+    { pattern: /node_modules\//, reason: 'dependency' },
+    // No leading `\/` on these three: unlike nextContentful (srcDir 'src'),
+    // this adapter's srcDir is the workspace root itself, so build output
+    // dirs like `dist/` commonly appear as the FIRST path segment (no
+    // preceding slash) — verified against the real repo, where
+    // `hotel-api/cdk/dist/...` duplicates the whole compiled tree.
+    { pattern: /dist\//, reason: 'build output' },
+    { pattern: /cdk\.out\//, reason: 'cdk synth output' },
+    { pattern: /coverage\//, reason: 'test coverage output' },
+    { pattern: /\.d\.ts$/, reason: 'type declaration' },
+    { pattern: /\.(test|spec)\.(t|j)s$/, reason: 'test file' },
+    { pattern: /\/__mocks__\//, reason: 'test mock' }
+  ],
+
+  charsPerToken: 4,
+  unitTokenBudget: 12000,
+
+  notMeasured: [
+    'Test coverage % (requires running the suite)',
+    'Exact duplication %',
+    'Runtime performance',
+    'Deployed infra drift (reviewed CDK code, not live stack state)'
+  ],
+
+  // eslint/testCoverage are best-effort here more than for nextContentful:
+  // many leaf Lambda packages in the real repo (e.g. getAgentProfile,
+  // appConfig) have no eslint config or test script of their own — the
+  // collector already degrades to "skipped" when the command fails, which is
+  // the correct outcome for those packages rather than an error.
+  collectors: { regex: true, eslint: true, npmAudit: true, orphans: true, testCoverage: false },
+  eslintCmd: 'npx eslint "**/*.{ts,js,mjs}" --format json',
+  npmAuditCmd: 'npm audit --json',
+  testCoverageCmd: 'npm test -- --coverage --coverageReporters=json-summary',
+  coverageSummaryPath: 'coverage/coverage-summary.json',
+  coverageThreshold: 80
 };
 
 // Registry of all known stack adapters, checked in order — first match wins.
-// Add a new adapter here (e.g. an AWS Lambda/AppSync config) to extend the
-// pipeline to another stack; nothing else in the pipeline needs to change.
-export const adapters: AdapterConfig[] = [nextContentful];
+// Add a new adapter here (e.g. a WordPress config) to extend the pipeline to
+// another stack; nothing else in the pipeline needs to change.
+export const adapters: AdapterConfig[] = [nextContentful, awsLambdaCdk];
 
 export function detectAdapter(repoRoot: string): AdapterConfig {
   const match = adapters.find((a) => a.detect(repoRoot));

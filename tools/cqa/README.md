@@ -55,6 +55,10 @@ eslint runs over `src` and can take a minute. To change how it's invoked, edit
   status (ran / skipped + why), and the clustered work units.
 - **`candidates.json`** — all candidates grouped by rule, each with evidence and
   a `collector` provenance tag. Sorted by severity then count.
+- **`coverage-summary.json`** — real Jest/Istanbul line coverage (`collectTestCoverage`
+  in `collectors.ts`): overall %, and every file below `coverageThreshold`.
+  Reported, never severity-weighted — see the comment on `TestCoverageResult`
+  for why a continuous % doesn't belong in the defect-density score.
 
 These feed the AI passes, run in this order inside Claude Code:
 
@@ -70,24 +74,31 @@ These feed the AI passes, run in this order inside Claude Code:
 5. **`HOLISTIC.md`** — cross-cutting synthesis → `.claude/cqa/holistic.json`.
 6. **`REFUTE.md`** — adversarial re-check of every High/Critical finding →
    `apply-refute.ts` → `.claude/cqa/refute-result.json`.
+7. **`STORYBOOK_COVERAGE.md`** — optional, only when
+   `npx tsx tools/cqa/prepare-storybook-coverage.ts` found component/story
+   pairs with a candidate prop gap — AI-confirmed Storybook prop/variant
+   coverage gaps → `merge-storybook-coverage.ts` →
+   `.claude/cqa/storybook-coverage-findings.json`. Same scoring treatment as
+   Jest coverage: a coverage-gap check, reported not weighted.
 
-Once all six passes have run, two deterministic (no-AI) steps turn the result
+Once all passes have run, two deterministic (no-AI) steps turn the result
 into a client-facing report:
 
-7. **`scorer.ts`** — severity-weighted-density scoring (fixed point weights per
+8. **`scorer.ts`** — severity-weighted-density scoring (fixed point weights per
    severity, normalized per thousand lines of source), graded A–E per category
-   and overall → `.claude/cqa/score.json`. Run: `npx tsx tools/cqa/scorer.ts`.
-8. **`report.ts`** — renders `score.json` plus every judged/reconciled finding
+   and overall, plus the unweighted Jest/Storybook coverage figures passed
+   through → `.claude/cqa/score.json`. Run: `npx tsx tools/cqa/scorer.ts`.
+9. **`report.ts`** — renders `score.json` plus every judged/reconciled finding
    (minus anything the refute pass rejected) into a single self-contained HTML
    report, including a "reviewed and dismissed" section for refuted and
-   needs-context findings → `.claude/cqa/report.html`. Run:
+   needs-context findings, and a Coverage section with Jest line coverage and
+   Storybook prop gaps → `.claude/cqa/report.html`. Run:
    `npx tsx tools/cqa/report.ts`.
 
 ## Extending it
 
-- **More collectors:** add to `collectors.ts` (Snyk `snyk test --json`, jest
-  `--coverage` for a real TestCoverage dimension). Return `Candidate[]` and a
-  `CollectorStatus`; the pipeline merges them.
+- **More collectors:** add to `collectors.ts` (e.g. Snyk `snyk test --json`).
+  Return `Candidate[]` and a `CollectorStatus`; the pipeline merges them.
 - **More first-party rules:** add to `patterns.ts`.
 - **Another stack (WordPress):** add a sibling config to `config.ts` selected by
   detection; `enumerate`, `graph`, the collectors framework, and the schema are

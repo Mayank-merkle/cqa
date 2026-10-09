@@ -184,28 +184,94 @@ before citing these figures as current.
   and a continuous CI gate are different tools with different cost profiles;
   this delivery is the former, and is the natural foundation for the latter
   if that's wanted later.
-- TODO: Storybook coverage check — a pass that compares each component's real
-  prop/variant surface against what its `.stories.tsx` actually exercises, and
-  flags cases Storybook misses (not a quality-of-the-story check, a
-  coverage-gap check). Not built yet; noted here as a future dimension, not
-  folded into the existing discovery pass's "Look for" list until designed.
-- TODO: AWS Lambda/AppSync `AdapterConfig` — extend `tools/cqa/config.ts`'s
-  adapter registry with a second stack adapter for the `DotcomV2-AppSync`
-  monorepo. Groundwork already done and verified against that real repo:
-  `detectWorkspaces()`/`findWorkspaceRoots()` in `config.ts` correctly
-  discover all 33 independently-deployable services/Lambdas in that monorepo
-  (no root `package.json` — each service has its own, at varying depth, e.g.
-  `hotel-api/cdk/lambdas/getCurrency`), and each currently reports "no
-  adapter matched" rather than guessing wrong. What's still needed: (1) a
-  `detect()` predicate for this stack (candidates: `aws-cdk-lib` in deps, a
-  `cdk.json` file, `aws-lambda` type deps — note the repo isn't uniform, e.g.
-  `contentful-search` is a plain Express app with none of these, so one
-  predicate may not fit every service); (2) `entryMatchers`/`skip` tuned to
-  CDK/Lambda conventions instead of Next.js App Router ones; (3) a
-  Lambda/AppSync-specific "Look for" list for `DISCOVERY.md` (cold-start-
-  sensitive init outside the handler, resolver N+1, missing DLQ/retry, overly
-  broad IAM roles, env var secrets) in place of the Next.js-specific one;
-  (4) `index.ts`'s `main()` currently assumes one `repoRoot` — running this
-  against a monorepo means either driving it once per discovered workspace
-  and merging manifests, or taking an explicit single-service path argument;
-  not yet decided which.
+- DONE: Storybook coverage check — `prepare-storybook-coverage.ts` pairs each
+  component with its colocated `.stories.tsx`, regex-extracts the component's
+  declared `Props` members and the prop keys actually set across the file's
+  story `args`, and keeps only pairs with a candidate gap. `STORYBOOK_COVERAGE.md`
+  (a dedicated AI pass, not folded into the per-unit discovery task — the
+  comparison is cross-file and needs its own bounded batching, like
+  reconciliation) reads the real source for each flagged pair, discards
+  extraction false positives (spread args, custom `render:` functions), and
+  reports only genuine gaps. `merge-storybook-coverage.ts` aggregates to
+  `.claude/cqa/storybook-coverage-findings.json`. Explicitly a coverage-gap
+  check, not a story-quality opinion — see `STORYBOOK_COVERAGE.md`'s framing.
+  Reported in the report's Coverage section, not severity-weighted (see next
+  item for why).
+- DONE: Jest test coverage check — `collectTestCoverage` in `collectors.ts`
+  runs the adapter's `testCoverageCmd` (adapter-config-driven, not hardcoded
+  to Jest flags) and parses the `coverageSummaryPath` json-summary file it
+  produces into an overall % plus every file below `coverageThreshold` (both
+  configurable per `AdapterConfig`, not hard-coded). Decision: coverage % is a
+  continuous metric, not a discrete defect, so it is never turned into a
+  severity-weighted `Candidate` — it's written to its own
+  `.claude/cqa/coverage-summary.json`, passed through `scorer.ts` unweighted,
+  and rendered in `report.ts`'s Coverage section alongside `coverage.reviewedPct`,
+  not mixed into any category's A–E grade.
+- DONE: AWS Lambda/AppSync `AdapterConfig` — `awsLambdaCdk` in `config.ts`,
+  registered alongside `nextContentful` in the `adapters` registry. Verified
+  against the real `DotcomV2-AppSync` monorepo (33 workspaces found by
+  `findWorkspaceRoots`; 28 matched, 5 correctly left unmatched). All four
+  open questions resolved:
+  1. `detect()` is NOT a single dependency check — the real repo isn't
+     uniform (e.g. `profile-api/cdk/lambdas/getAgentProfile` and
+     `ssm-params/lambdas/appConfig` depend on nothing but `axios`, no
+     `aws-cdk-lib`/`aws-lambda` anywhere in their own `package.json`). It
+     matches on, in order: a local `cdk.json`, an `aws-cdk-lib` dependency, an
+     `aws-lambda`/`@types/aws-lambda` dependency, or — for marker-less nested
+     Lambda packages — a `cdk.json` in a bounded walk (3 levels) of ancestor
+     directories (`hasAncestorCdkJson`), which is how the CDK-app-relative
+     leaf packages above get caught. A plain Express service
+     (`contentful-search`) and three standalone migration scripts
+     (`sitecore-to-contentful`, `leonardo-to-cloudinary`,
+     `synxis-to-cloudinary`) correctly report "no adapter matched"; so does
+     `monitoring-operations`'s root (docs + a local-test `package.json` with
+     no `src/`, no `cdk.json` of its own — the real Lambda source is in its
+     `cdk/` sibling, which does match).
+  2. `entryMatchers`/`skip` are grounded in the real repo's actual file
+     layout, not generic AWS Lambda convention — e.g. the repo uses
+     `lambdas/<name>/index.ts`, never `handler.ts`. `srcDir` is `.` (these
+     workspaces have no `src/` directory; source sits at the package root
+     alongside `bin/`, `lib/`, `lambdas/`, `functions/`, `resolvers/`). One
+     real bug caught by the real-repo smoke test and fixed before landing:
+     the `dist/`/`cdk.out/`/`coverage/` skip patterns were copied from
+     `nextContentful` with a leading `\/`, which never matches when that
+     directory is the first path segment (true here, since `srcDir` is the
+     workspace root) — `hotel-api/cdk/dist/` was being scanned as live source
+     until the leading slash was dropped.
+  3. `DISCOVERY.md`'s per-unit task now has two "Look for" list variants
+     under one shared task, selected by the unit's `manifest.json` `stack`
+     field (`next-contentful` vs `aws-lambda-cdk`) — not a replacement of the
+     Next.js list. The Lambda/CDK list covers cold-start-harmful
+     initialization, resolver/handler N+1, missing DLQ/retry, overly broad
+     IAM, and env-var secrets, as scoped.
+  4. `index.ts`'s `main()`: chose "drive the deterministic pipeline once per
+     discovered workspace" over a single-service path argument. Reasoning: a
+     monorepo's workspace list isn't static across runs (services get
+     added/removed), so a caller like `run-cqa.md` would otherwise have to
+     reimplement `detectWorkspaces()` discovery itself just to know what
+     paths to pass in one at a time — doing it once inside `index.ts` keeps
+     that logic in the one file the header comment already calls "the ONLY
+     stack-specific file" plus its existing monorepo-discovery companion
+     functions. Manifests are namespaced by directory
+     (`<workspaceRoot>/.claude/cqa/manifest.json`, one per workspace) rather
+     than merged into a single manifest, because `WorkUnit.id` values
+     (`unit-001`, `unit-002`, ...) are only unique within one run and would
+     collide across workspaces if combined. A top-level
+     `<target>/.claude/cqa/workspaces.json` index is also written, listing
+     every discovered workspace, whether it matched an adapter, and (for
+     matches) its source-file/work-unit/candidate counts — so a caller can
+     enumerate what to drive the AI passes over without re-walking the tree.
+     The single-package path (a repo with its own root `package.json`) is
+     unchanged: `detectAdapter()` still throws its original clear error when
+     nothing matches, rather than that being swallowed into a one-entry
+     workspace list.
+  Tests: `config.test.ts` gained `awsLambdaCdk.detect` cases (cdk.json,
+  aws-cdk-lib dep, aws-lambda dep, ancestor-cdk.json, and the Express
+  non-match) plus a `detectWorkspaces` case reproducing the real repo's mixed
+  CDK-root/marker-less-leaf/plain-Express shape. Smoke-tested against the
+  real `DotcomV2-AppSync` repo (detection across all 33 workspaces; a full
+  single-service `index.ts` run against `ssm-params`; a bounded multi-service
+  `index.ts` run confirming the per-workspace loop, graceful eslint/npm-audit
+  degradation when a leaf package has no `node_modules` installed, and
+  correct skip-with-reason for unmatched workspaces) — smoke script and its
+  output artifacts were thrown away after, not committed.
