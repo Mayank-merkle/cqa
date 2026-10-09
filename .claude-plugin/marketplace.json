@@ -1,0 +1,12 @@
+{
+  "name": "cqa",
+  "owner": { "name": "Mayank" },
+  "description": "Code Quality Analyzer — a one-time, deep code-quality baseline audit plugin (deterministic rules + AI code review).",
+  "plugins": [
+    {
+      "name": "cqa",
+      "source": ".",
+      "description": "Run a one-time, deep code-quality baseline audit (deterministic rules + AI code review) against the current project and produce a self-contained HTML report."
+    }
+  ]
+}
