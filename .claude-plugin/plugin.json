@@ -1,0 +1,11 @@
+{
+  "name": "cqa",
+  "version": "1.0.0",
+  "description": "Run a one-time, deep code-quality baseline audit (deterministic rules + AI code review) against the current project and produce a self-contained HTML report.",
+  "displayName": "Code Quality Analyzer",
+  "author": { "name": "Mayank" },
+  "homepage": "https://github.com/Mayank-merkle/cqa",
+  "repository": "https://github.com/Mayank-merkle/cqa",
+  "license": "UNLICENSED",
+  "keywords": ["code-quality", "audit", "static-analysis", "nextjs"]
+}

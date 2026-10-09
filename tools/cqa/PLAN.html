@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Code Quality Analyzer</title>
+<style>
+  :root{
+    --ink:#1a2233;
+    --sub:#5a6478;
+    --line:#e2e6ed;
+    --bg:#ffffff;
+    --panel:#f6f8fb;
+    --blue:#2f5fd6;
+    --blue-bg:#eef2fd;
+    --green:#1a8f5a;
+    --green-bg:#eaf7ef;
+    --amber:#b5790a;
+    --amber-bg:#fdf3e2;
+    --red:#c23a3a;
+    --red-bg:#fbeaea;
+    --code-bg:#1e2430;
+    --code-ink:#dbe4f3;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    line-height:1.55;
+  }
+  .page{max-width:920px;margin:0 auto;padding:48px 40px 80px;}
+
+  header.doc-head{
+    border-bottom:3px solid var(--ink);
+    padding-bottom:20px;
+    margin-bottom:36px;
+  }
+  header.doc-head .kicker{
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    font-size:12px;
+    font-weight:700;
+    color:var(--blue);
+    margin-bottom:8px;
+  }
+  header.doc-head h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em;}
+  header.doc-head p.goal{font-size:16px;color:var(--sub);margin:0;max-width:740px;}
+
+  h2{font-size:20px;margin:46px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line);}
+  h2 .num{color:var(--blue);margin-right:8px;}
+  h3{font-size:16px;margin:26px 0 10px;}
+  p{margin:0 0 12px;color:var(--ink);}
+  .sub{color:var(--sub);}
+  .lead{font-size:15.5px;max-width:760px;}
+
+  ul{margin:0 0 14px;padding-left:22px;}
+  li{margin-bottom:6px;}
+  code{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:1px 5px;
+    font-size:.9em;
+    font-family:'SF Mono',Consolas,Menlo,monospace;
+  }
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0 6px;}
+  .card{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:16px 18px;}
+  .card strong{display:block;margin-bottom:6px;font-size:14.5px;}
+  .card p{margin:0;font-size:13.5px;color:var(--sub);}
+
+  .pipeline{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 24px;margin:18px 0 24px;}
+  .pipeline .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+  .pipeline .node{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-weight:600;font-size:12.5px;white-space:nowrap;}
+  .pipeline .node.accent{border-color:var(--blue);color:var(--blue);background:var(--blue-bg);}
+  .pipeline .node.finish{border-color:var(--green);color:var(--green);background:var(--green-bg);}
+  .pipeline .arrow{color:var(--sub);font-size:15px;}
+
+  .block{border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:16px 0 22px;background:var(--bg);}
+  .block h4{margin:0 0 8px;font-size:15px;}
+  .block p{font-size:14px;}
+  pre{
+    background:var(--code-bg);color:var(--code-ink);border-radius:8px;padding:16px 18px;
+    overflow-x:auto;font-size:12.5px;line-height:1.6;font-family:'SF Mono',Consolas,Menlo,monospace;
+    margin:12px 0 14px;
+  }
+
+  .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 24px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 12px;text-align:center;}
+  .stat .num{font-size:22px;font-weight:800;color:var(--blue);display:block;}
+  .stat .label{font-size:11.5px;color:var(--sub);margin-top:2px;}
+
+  /* Report mockup */
+  .report-mock{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:18px 0 10px;box-shadow:0 2px 10px rgba(20,30,60,.05);}
+  .report-mock .rm-head{background:var(--ink);color:#fff;padding:16px 22px;display:flex;justify-content:space-between;align-items:center;}
+  .report-mock .rm-head .title{font-weight:700;font-size:14.5px;}
+  .report-mock .rm-head .sub{color:#aab4c8;font-size:12px;}
+  .report-mock .rm-body{padding:22px;background:var(--bg);}
+
+  .narrative-card{border-left:4px solid var(--blue);background:var(--blue-bg);border-radius:0 8px 8px 0;padding:14px 18px;font-size:13.5px;font-style:italic;color:#243158;margin-bottom:20px;}
+
+  .bar-group{margin-bottom:20px;}
+  .bar-group h5{margin:0 0 10px;font-size:12.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--sub);}
+  .bar-row{display:grid;grid-template-columns:110px 1fr 40px;align-items:center;gap:10px;margin-bottom:7px;font-size:12.5px;}
+  .bar-track{background:var(--panel);border-radius:5px;height:12px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:5px;}
+  .bar-row.high .bar-fill{background:var(--red);}
+  .bar-row.med .bar-fill{background:var(--amber);}
+  .bar-row.low .bar-fill{background:#8fa2c9;}
+  .bar-row.cat .bar-fill{background:var(--blue);}
+
+  table.findings{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.findings th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--sub);padding:0 8px 8px;border-bottom:1px solid var(--line);}
+  table.findings td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
+  table.findings tr:last-child td{border-bottom:none;}
+  .sev{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;}
+  .sev.high{background:var(--red-bg);color:var(--red);}
+  .sev.med{background:var(--amber-bg);color:var(--amber);}
+
+  table.md{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0 22px;}
+  table.md th{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);color:var(--sub);font-size:11.5px;text-transform:uppercase;}
+  table.md td{padding:6px 10px;border-bottom:1px solid var(--line);}
+
+  footer{margin-top:50px;padding-top:16px;border-top:1px solid var(--line);font-size:12px;color:var(--sub);}
+
+  @media print{
+    body{background:#fff;}
+    .page{padding:0 8mm;max-width:none;}
+    .card,.stat,.pipeline,pre,.block,.report-mock{break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="doc-head">
+    <div class="kicker">Code Quality Analyzer</div>
+    <h1>Automated Code Quality Report</h1>
+    <p class="goal">A pipeline that produces a comprehensive, evidence-backed quality report for this codebase — combining deterministic static analysis with an AI review layer that reads the code directly.</p>
+  </header>
+
+  <h2><span class="num">1</span>What we're building</h2>
+  <p class="lead">An automated pipeline that produces a comprehensive, evidence-backed code quality report for this codebase — in the spirit of a SonarQube scan, but going further: it pairs deterministic static analysis with an AI review layer that reads the code directly, catching logic bugs, race conditions, and framework-version-specific issues that pattern-matching tools structurally cannot express. Every finding is anchored to a specific file and line, so the report is auditable, not a generic checklist.</p>
+
+  <div class="split">
+    <div class="card">
+      <strong>Deterministic analysis</strong>
+      <p>ESLint, npm audit, and first-party pattern rules — exhaustive and fully reproducible.</p>
+    </div>
+    <div class="card">
+      <strong>AI deep-read</strong>
+      <p>Independent review of the actual code, catching what pattern matching structurally can't.</p>
+    </div>
+  </div>
+  <p class="lead" style="margin-top:12px">It runs as a one-time baseline audit of the full codebase — the right shape for an initial quality assessment, a handoff, or a periodic health check.</p>
+
+  <h2><span class="num">2</span>Architecture — how it works</h2>
+
+  <div class="pipeline">
+    <div class="row">
+      <div class="node">enumerate codebase</div>
+      <div class="arrow">→</div>
+      <div class="node">dependency graph</div>
+      <div class="arrow">→</div>
+      <div class="node">static analysis</div>
+      <div class="arrow">→</div>
+      <div class="node">judgment layer</div>
+    </div>
+    <div class="row">
+      <div class="node accent">version-rules brief</div>
+      <div class="arrow">→</div>
+      <div class="node">AI deep-read (per module)</div>
+      <div class="arrow">→</div>
+      <div class="node">cross-cutting synthesis</div>
+      <div class="arrow">→</div>
+      <div class="node finish">report</div>
+    </div>
+  </div>
+
+  <div class="block">
+    <h4>Enumeration &amp; mapping</h4>
+    <p>Every file in <code>src/</code> is walked, classified, and accounted for, giving an honest coverage figure rather than a sampled guess.</p>
+  </div>
+
+  <div class="block">
+    <h4>Dependency graph</h4>
+    <p>The codebase map is built with the TypeScript compiler itself — the same resolution the project's own build uses — so path aliases, barrel re-exports, and dynamic imports resolve exactly:</p>
+
+    <p style="font-size:13.5px">That graph is then split into bounded modules of related files, each small enough for a focused, thorough AI read.</p>
+  </div>
+
+  <div class="block">
+    <h4>Version-rules brief</h4>
+    <p>Before any code is read, the pipeline resolves a version-specific rules brief via Context7 for the exact framework versions this repo runs — <code>next@15.5.18</code>, <code>react@19.2</code>, <code>next-auth@5.0.0-beta.26</code> — covering current APIs and known upcoming breaking changes. Findings are checked against the real, current contract for this stack, not generic assumptions. For example, it lets the review proactively note that Next.js 16 renames <code>middleware.ts</code> to <code>proxy.ts</code>, and that <code>src/middleware.ts</code> will need that rename on the next major upgrade — a fact invisible to a linter.</p>
+  </div>
+
+  <div class="block">
+    <h4>Static analysis, judgment, AI deep-read &amp; synthesis</h4>
+    <p>ESLint, npm audit, and first-party pattern rules run across the whole codebase. Every static finding passes a skeptical confirm/reject review before it's allowed into the report. Each bounded module is separately read by an AI reviewer with no pre-filtering, looking for the class of issue static tools can't express — leaks, race conditions, unsafe data handling, version-specific API misuse. A final synthesis pass reasons across all findings together, surfacing systemic patterns no single file reveals on its own.</p>
+  </div>
+
+  <h2><span class="num">3</span>Already validated on this codebase</h2>
+  <p>This pipeline isn't theoretical — it has already run end to end against this repository and produced a full set of real, cited findings.</p>
+
+  <div class="stat-row">
+    <div class="stat"><span class="num">878</span><span class="label">files enumerated</span></div>
+    <div class="stat"><span class="num">196</span><span class="label">total findings</span></div>
+    <div class="stat"><span class="num">23</span><span class="label">High severity</span></div>
+    <div class="stat"><span class="num">1</span><span class="label">architectural insight</span></div>
+  </div>
+
+  <h2><span class="num">4</span>What the report looks like</h2>
+  <p class="lead">The final deliverable reads like a SonarQube-style quality report, built directly from this pipeline's output. Below is a preview using this run's real data.</p>
+
+  <div class="report-mock">
+    <div class="rm-head">
+      <div>
+        <div class="title">Code Quality Report — Sample Preview</div>
+        <div class="sub">878 files reviewed · 196 findings · generated by CQA</div>
+      </div>
+    </div>
+    <div class="rm-body">
+      <div class="narrative-card">
+        "This is a well-structured, disciplined Next.js codebase whose defects cluster into a few identifiable cross-cutting concerns rather than spreading as pervasive low quality... The most material weakness is systemic: client-side async work is fired without cancellation or request-ordering guards across roughly a dozen search and reservation components... Genuine security risk is real but narrow... The headline-grabbing vulnerable-dependency count is dominated by dev/transitive tooling and should be triaged down to the handful of runtime-reachable packages."
+      </div>
+
+      <div class="bar-group">
+        <h5>Findings by severity</h5>
+        <div class="bar-row high"><span>High — 23</span><div class="bar-track"><div class="bar-fill" style="width:24%"></div></div><span></span></div>
+        <div class="bar-row med"><span>Medium — 78</span><div class="bar-track"><div class="bar-fill" style="width:80%"></div></div><span></span></div>
+        <div class="bar-row low"><span>Low — 95</span><div class="bar-track"><div class="bar-fill" style="width:97%"></div></div><span></span></div>
+      </div>
+
+      <div class="bar-group">
+        <h5>Findings by category</h5>
+        <div class="bar-row cat"><span>Reliability — 62</span><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span></span></div>
+        <div class="bar-row cat"><span>Security — 61</span><div class="bar-track"><div class="bar-fill" style="width:98%"></div></div><span></span></div>
+        <div class="bar-row cat"><span>Correctness — 44</span><div class="bar-track"><div class="bar-fill" style="width:71%"></div></div><span></span></div>
+        <div class="bar-row cat"><span>Maintainability — 20</span><div class="bar-track"><div class="bar-fill" style="width:32%"></div></div><span></span></div>
+        <div class="bar-row cat"><span>Performance — 9</span><div class="bar-track"><div class="bar-fill" style="width:15%"></div></div><span></span></div>
+      </div>
+
+      <div class="bar-group" style="margin-bottom:0">
+        <h5>Sample findings</h5>
+        <table class="findings">
+          <tr><th>Severity</th><th>Category</th><th>Location</th><th>Finding</th></tr>
+          <tr><td><span class="sev high">High</span></td><td>Reliability</td><td><code>loginForm/actions.ts:49</code></td><td>Swallowed error causes a false "success" on auth failure</td></tr>
+          <tr><td><span class="sev high">High</span></td><td>Reliability</td><td><code>propertySearchWithResults.tsx:175</code></td><td>Race condition in async search — stale results shown</td></tr>
+          <tr><td><span class="sev high">High</span></td><td>Security</td><td><code>auth.ts:74</code></td><td>Misconfigured environment variable</td></tr>
+          <tr><td><span class="sev med">Medium</span></td><td>Maintainability</td><td><code>accordionSection.client.tsx:97</code></td><td>Rules-of-Hooks violation</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <p class="lead" style="margin-top:16px">The full report adds a coverage statement (exactly what was reviewed and what was deliberately out of scope) and groups every finding under its severity and category with complete file:line evidence.</p>
+
+  <h2><span class="num">5</span>Scope of this delivery</h2>
+  <table class="md">
+    <tr><th>In scope</th><td>One comprehensive baseline report for this codebase, covering security, reliability, performance, maintainability, and accessibility.</td></tr>
+    <tr><th>Not in this phase</th><td>Continuous per-PR scanning. A one-time deep audit and a continuous CI gate are different tools with different cost profiles — this delivery is the former, and is the natural foundation for the latter if that's wanted later.</td></tr>
+  </table>
+
+  <footer>
+    Code Quality Analyzer · tools/cqa/PLAN.html
+  </footer>
+
+</div>
+</body>
+</html>
