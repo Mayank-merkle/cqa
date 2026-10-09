@@ -83,16 +83,6 @@ export const rules: PatternRule[] = [
     suggestedFix: 'Move to an environment variable; rotate the credential if it was committed.',
     source: 'pattern',
   },
-  {
-    id: 'contentful.rich-text-to-html',
-    category: 'Rich text rendered as HTML string',
-    dimension: 'Security',
-    severity: 'Medium',
-    regex: /documentToHtmlString\s*\(/,
-    description: 'documentToHtmlString output is unsafe if passed to dangerouslySetInnerHTML without sanitization.',
-    suggestedFix: 'Prefer documentToReactComponents; if HTML is required, sanitize before rendering.',
-    source: 'pattern',
-  },
   // --- Reliability ---
   {
     id: 'general.hardcoded-http-url',

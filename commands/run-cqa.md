@@ -30,9 +30,15 @@ Sanity-check: spot-check a few `workUnits` entries in the new `manifest.json` an
 
 Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/VERSION_BRIEF.md` exactly: read the project's `manifest.json`'s `detectedVersions`, use the Context7 MCP tools (`resolve-library-id` / `query-docs`) per package, write `${CLAUDE_PROJECT_DIR}/.claude/cqa/version-brief.json`. If Context7 isn't available, write the file anyway with `"currentApiNotes": "unavailable — Context7 lookup failed"` entries per that doc's fallback instruction — never skip the file.
 
+## Step 3.5 — Project docs brief
+
+Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/prepare-docs-brief.ts" "${CLAUDE_PROJECT_DIR}"` → `project-docs-input.json`.
+
+Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/PROJECT_DOCS_BRIEF.md` exactly: skim the discovered markdown files in the user's own project, read and summarize the ones with real operational/architectural content, tag each with the file patterns it's relevant to, write `${CLAUDE_PROJECT_DIR}/.claude/cqa/project-docs-brief.json`. This exists because a project's own docs explain *why* a pattern is built the way it is — e.g. a documented multi-query fan-out workaround for a CMS response-size limit — which the discovery pass needs to avoid misreading a deliberate design as a bug. Don't skip this even if nothing is worth summarizing; write the file with empty `entries` either way.
+
 ## Step 4 — Discovery pass (per work unit)
 
-Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/DISCOVERY.md`'s orchestration exactly, reading work units from the project's `manifest.json`. For each work unit, extract the matching version-brief entries and dispatch one subagent per unit with the "Per-unit task" from that doc, **model sonnet, foreground, batched ~6-10 at a time per the operational rule above**. Each writes `${CLAUDE_PROJECT_DIR}/.claude/cqa/units/<unitId>.findings.json`. Hard rule from the doc: subagents must not spawn further subagents, and you must not exceed the fixed work-unit list.
+Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/DISCOVERY.md`'s orchestration exactly, reading work units from the project's `manifest.json`. For each work unit, extract the matching version-brief entries AND any project-docs-brief entries whose `relevantTo` patterns match the unit's files, then dispatch one subagent per unit with the "Per-unit task" from that doc, **model sonnet, foreground, batched ~6-10 at a time per the operational rule above**. Each writes `${CLAUDE_PROJECT_DIR}/.claude/cqa/units/<unitId>.findings.json`. Hard rule from the doc: subagents must not spawn further subagents, and you must not exceed the fixed work-unit list.
 
 Then: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/merge-discovery.ts" "${CLAUDE_PROJECT_DIR}"` → `discovery-findings.json` + `unit-summaries.json`.
 
@@ -91,6 +97,6 @@ Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/scorer.ts" "${CLAUDE_PROJECT_DIR}
 
 ## Step 12 — Verify and summarize
 
-Confirm all of these exist and are non-empty under `${CLAUDE_PROJECT_DIR}/.claude/cqa/`: `manifest.json`, `candidates.json`, `version-brief.json`, `discovery-findings.json`, `unit-summaries.json`, `findings.json`, `discovery-findings.judged.json`, `reconciliation-findings.json`, `holistic.json`, `refute-result.json`, `score.json`, `cost.json`, `report.html`.
+Confirm all of these exist under `${CLAUDE_PROJECT_DIR}/.claude/cqa/` (`project-docs-brief.json` may legitimately have empty `entries` if no project docs were worth summarizing, but the file itself must exist): `manifest.json`, `candidates.json`, `version-brief.json`, `project-docs-brief.json`, `discovery-findings.json`, `unit-summaries.json`, `findings.json`, `discovery-findings.judged.json`, `reconciliation-findings.json`, `holistic.json`, `refute-result.json`, `score.json`, `cost.json`, `report.html`.
 
 Report back to the user: the overall grade, per-category grades, total scored findings (AI-found vs tool-found split), and the cost estimate — then tell them `.claude/cqa/report.html` (in their own project) is ready and offer to open it.
