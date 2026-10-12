@@ -46,6 +46,21 @@ Constraints:
 - Output ONLY a JSON array of verdicts to `.claude/cqa/verdicts.json`. No prose around it.
 
 ## Scale
-The input is small — judge it in one pass. You do NOT need subagents here.
-(Subagent fan-out is for the later semantic-discovery pass over the 42 work units,
-which finds issues the tools miss. This pass only judges what the tools already found.)
+If `judgment-input.json` has **40 items or fewer**, judge it yourself directly
+in one pass — no subagents needed. (Subagent fan-out is primarily for the
+semantic-discovery pass over the work units, which finds issues the tools
+miss; this pass only judges what the tools already found, which is usually
+small.)
+
+If it has **more than 40 items**, split it into batches of ~35-40 and
+dispatch one subagent per batch (model sonnet, foreground, batched ~6-10 at a
+time — same operational rule as every other batched stage), each following
+this doc exactly for its slice and writing its own batch-verdicts file (use
+the scratchpad directory for intermediate batch files, not the project or the
+plugin). After all batches return: verify every input `id` has a matching
+verdict by diffing ids per batch, not just counts — if any are missing, judge
+those specific items yourself directly. Merge all batches into one array and
+write the combined result to `.claude/cqa/verdicts.json`, same shape as a
+single-pass run. A codebase that trips this threshold is usually one with a
+large candidate volume from eslint or npm audit, not a sign anything went
+wrong — batch it the same way you would discovery-judgment.
