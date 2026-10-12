@@ -13,9 +13,10 @@ bounded work units the driver already produced, one unit per subagent.
    `.claude/cqa/version-brief.json` (matching the unit's stack/framework —
    e.g. the `next`, `react`, `typescript` entries for this codebase) and (b)
    any `project-docs-brief.json` entries whose `relevantTo` patterns match
-   the unit's files, then launch ONE subagent with the "Per-unit task" below,
-   giving it that unit's `files` list AND both extracted briefs. Process
-   sequentially, or in small parallel batches.
+   the unit's files — including every entry tagged `["**"]` (e.g. a root
+   `CLAUDE.md`), which applies to every unit — then launch ONE subagent with
+   the "Per-unit task" below, giving it that unit's `files` list AND both
+   extracted briefs. Process sequentially, or in small parallel batches.
 3. Each subagent writes `.claude/cqa/units/<unitId>.findings.json`.
 4. Hard rule: do NOT exceed the work-unit list, and subagents do NOT spawn
    further subagents. The fixed list is your budget — this prevents runaway
@@ -29,13 +30,24 @@ You are also given the relevant excerpt of `.claude/cqa/version-brief.json`
 for this stack — use it, not training priors, when a finding depends on
 current framework behavior (is this deprecated, will this break in the next
 major version) — and any matching excerpt of `.claude/cqa/project-docs-brief.json`,
-the project's own documented architecture decisions. **The project-docs
-brief takes precedence over generic pattern-matching**: if a doc explains
-*why* a pattern exists (e.g. multiple requests per page render is a
-documented workaround for a response-size limit, not an accidental N+1),
-do not flag the documented pattern as a bug — a project's own stated
-rationale beats a surface-level resemblance to a known anti-pattern every
-time.
+the project's own documented architecture decisions. Each project-docs-brief
+entry carries two different things; use them differently:
+
+- **`summary`** is exonerating context — it takes precedence over generic
+  pattern-matching. If a doc explains *why* a pattern exists (e.g. multiple
+  requests per page render is a documented workaround for a response-size
+  limit, not an accidental N+1), do not flag the documented pattern as a
+  bug — a project's own stated rationale beats a surface-level resemblance
+  to a known anti-pattern every time.
+- **`rules`** are standing house rules this project's own team has stated as
+  requirements (often from a root `CLAUDE.md`) — actively check this unit's
+  files against every `rules` entry whose doc applies to it (including any
+  entry tagged `relevantTo: ["**"]`), and report a **violation of a stated
+  project rule** as its own finding category when you find one, the same way
+  you'd report any other semantic finding below. A rule violation is not
+  automatically High/Critical — judge its severity on the same scale as
+  everything else, based on actual impact, not on the fact that it's a
+  stated rule.
 
 Use the "Look for" list below that matches the unit's stack — read it off
 `.claude/cqa/manifest.json`'s `stack` field (or the per-workspace manifest's

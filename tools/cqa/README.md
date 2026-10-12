@@ -22,8 +22,13 @@ writes two files the AI passes consume.
    as a cross-cluster edge for the reconciliation pass to examine.
 4. **Collect candidates** from several deterministic sources, normalized into
    one schema:
-   - **regex** — first-party patterns for Contentful/Next/Merkle-specific
-     things the generic tools don't know about.
+   - **regex** — first-party patterns (`patterns.ts`). Most are stack-agnostic
+     language/runtime smells (SQL-by-concatenation, weak hashes, suppressed
+     type checks, `any`, ...); a rule tied to a specific framework/CMS (Next.js
+     image/data-fetching conventions, Contentful token exposure, AWS IAM/ARN
+     patterns) is tagged with the stack(s) it applies to via `stacks`, and
+     `rulesForStack()` filters the set run against a given repo so a Next.js
+     rule never fires against a Lambda repo and vice versa.
    - **eslint** — runs your configured eslint (custom rules included) and
      harvests its AST-grade findings (hooks deps, a11y, react/next rules).
    - **npm audit** — dependency vulnerabilities, mapped to Security severities.
@@ -64,17 +69,23 @@ These feed the AI passes, run in this order inside Claude Code:
 
 1. **`VERSION_BRIEF.md`** — Context7-grounded version-rules brief →
    `.claude/cqa/version-brief.json`.
-2. **`DISCOVERY.md`** — per-unit semantic read → `merge-discovery.ts` →
+2. **`PROJECT_DOCS_BRIEF.md`** — summarizes the project's own markdown docs
+   (always including a root `CLAUDE.md` if present) into exonerating context
+   *and* explicit house rules → `.claude/cqa/project-docs-brief.json`. The
+   `rules` field is how a project's own stated conventions ("API routes must
+   validate input with zod") get actively checked by Discovery, not just
+   used to dismiss false positives.
+3. **`DISCOVERY.md`** — per-unit semantic read → `merge-discovery.ts` →
    `.claude/cqa/discovery-findings.json`.
-3. **`JUDGMENT.md`** (static candidates) and **`DISCOVERY_JUDGMENT.md`**
+4. **`JUDGMENT.md`** (static candidates) and **`DISCOVERY_JUDGMENT.md`**
    (semantic findings) — both confirm/reject passes →
    `.claude/cqa/findings.json` / `.claude/cqa/discovery-findings.judged.json`.
-4. **`RECONCILIATION.md`** — cross-cluster pass → `merge-reconciliation.ts` →
+5. **`RECONCILIATION.md`** — cross-cluster pass → `merge-reconciliation.ts` →
    `.claude/cqa/reconciliation-findings.json`.
-5. **`HOLISTIC.md`** — cross-cutting synthesis → `.claude/cqa/holistic.json`.
-6. **`REFUTE.md`** — adversarial re-check of every High/Critical finding →
+6. **`HOLISTIC.md`** — cross-cutting synthesis → `.claude/cqa/holistic.json`.
+7. **`REFUTE.md`** — adversarial re-check of every High/Critical finding →
    `apply-refute.ts` → `.claude/cqa/refute-result.json`.
-7. **`STORYBOOK_COVERAGE.md`** — optional, only when
+8. **`STORYBOOK_COVERAGE.md`** — optional, only when
    `npx tsx tools/cqa/prepare-storybook-coverage.ts` found component/story
    pairs with a candidate prop gap — AI-confirmed Storybook prop/variant
    coverage gaps → `merge-storybook-coverage.ts` →
@@ -84,11 +95,11 @@ These feed the AI passes, run in this order inside Claude Code:
 Once all passes have run, two deterministic (no-AI) steps turn the result
 into a client-facing report:
 
-8. **`scorer.ts`** — severity-weighted-density scoring (fixed point weights per
+9. **`scorer.ts`** — severity-weighted-density scoring (fixed point weights per
    severity, normalized per thousand lines of source), graded A–E per category
    and overall, plus the unweighted Jest/Storybook coverage figures passed
    through → `.claude/cqa/score.json`. Run: `npx tsx tools/cqa/scorer.ts`.
-9. **`report.ts`** — renders `score.json` plus every judged/reconciled finding
+10. **`report.ts`** — renders `score.json` plus every judged/reconciled finding
    (minus anything the refute pass rejected) into a single self-contained HTML
    report, including a "reviewed and dismissed" section for refuted and
    needs-context findings, and a Coverage section with Jest line coverage and
