@@ -243,4 +243,61 @@ describe('renderReport', () => {
     expect(html).toContain('$15');
     expect(html).toContain('Not an authoritative billing figure.');
   });
+
+  it('renders a quiet confirmation when the budget cap was not reached', () => {
+    const html = renderReport({
+      ...baseReport,
+      cost: {
+        generatedAt: '2026-10-08T09:00:00.000Z',
+        model: 'claude-sonnet-5-5',
+        pricing: { inputPerMTok: 2, outputPerMTok: 10, assumedBlendedPerMTok: 3.6, assumptionNote: 'read-heavy assumption' },
+        measured: { tokens: 100000, description: 'Directly observed.' },
+        estimatedNested: { tokens: 0, description: 'None.', breakdown: [] },
+        totalEstimateTokens: 100000,
+        costEstimateUsd: { low: 0.2, central: 0.36, high: 1 },
+        caveat: 'Not an authoritative billing figure.',
+        budget: { capUsd: 100, exceeded: false },
+      },
+    });
+
+    expect(html).toContain('Budget cap: $100 for this run. Not reached');
+    expect(html).not.toContain('Budget cap of $100 was reached');
+  });
+
+  it('surfaces a prominent, non-buried warning when the budget cap was reached, and still renders the full report', () => {
+    const html = renderReport({
+      ...baseReport,
+      cost: {
+        generatedAt: '2026-10-08T09:00:00.000Z',
+        model: 'claude-sonnet-5-5',
+        pricing: { inputPerMTok: 2, outputPerMTok: 10, assumedBlendedPerMTok: 3.6, assumptionNote: 'read-heavy assumption' },
+        measured: { tokens: 28000000, description: 'Directly observed.' },
+        estimatedNested: { tokens: 0, description: 'None.', breakdown: [] },
+        totalEstimateTokens: 28000000,
+        costEstimateUsd: { low: 56, central: 100.8, high: 280 },
+        caveat: 'Not an authoritative billing figure.',
+        budget: {
+          capUsd: 100,
+          exceeded: true,
+          stoppedAtStage: 'Reconciliation (batch 12 of 31)',
+          skipped: 'Reconciliation batches 13-31 and Refutation were not run; scoring/report cover only what was collected through batch 12.',
+        },
+      },
+    });
+
+    // Still a complete report — scoring/report generation isn't skipped just because the cap was hit.
+    expect(html).toContain('<html');
+    expect(html).toContain('Appendix: pipeline cost');
+    expect(html).toContain('Overall grade');
+
+    // The warning appears near the top of the document (before the executive summary),
+    // not only buried in the cost appendix.
+    const topBannerIndex = html.indexOf('Budget cap of $100 was reached');
+    const execSummaryIndex = html.indexOf('Executive summary');
+    expect(topBannerIndex).toBeGreaterThan(-1);
+    expect(topBannerIndex).toBeLessThan(execSummaryIndex);
+
+    expect(html).toContain('Reconciliation (batch 12 of 31)');
+    expect(html).toContain('Reconciliation batches 13-31 and Refutation were not run');
+  });
 });

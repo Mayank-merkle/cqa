@@ -26,6 +26,13 @@ interface CostBreakdownRow {
   estimatedTokens: number;
 }
 
+interface BudgetData {
+  capUsd: number;
+  exceeded: boolean;
+  stoppedAtStage?: string; // which stage dispatch stopped at, if exceeded
+  skipped?: string; // human-readable description of what was skipped as a result
+}
+
 interface CostData {
   generatedAt: string;
   model: string;
@@ -35,6 +42,7 @@ interface CostData {
   totalEstimateTokens: number;
   costEstimateUsd: { low: number; central: number; high: number };
   caveat: string;
+  budget?: BudgetData;
 }
 
 interface TestCoverageData {
@@ -188,6 +196,19 @@ function fmtTokens(n: number): string {
 // subagents don't report usage back to the orchestrating session, so this
 // section renders a hand-recorded estimate (.claude/cqa/cost.json) when present,
 // and is omitted entirely otherwise rather than showing a fabricated number.
+function budgetBannerHtml(budget: BudgetData): string {
+  if (!budget.exceeded) {
+    return `<p class="dep-summary">Budget cap: $${budget.capUsd} for this run. Not reached — this report covers the full scope.</p>`;
+  }
+  return `
+  <div class="card budget-exceeded">
+    <p><strong>&#9888; Budget cap of $${budget.capUsd} was reached${budget.stoppedAtStage ? ` during ${esc(budget.stoppedAtStage)}` : ''}.</strong>
+    The pipeline did not re-scope or fail — it stopped dispatching further review work once the cap was hit and completed
+    scoring/reporting on everything already collected, so this report is based on a <strong>partial</strong> scan, not the full one.</p>
+    ${budget.skipped ? `<p>${esc(budget.skipped)}</p>` : ''}
+  </div>`;
+}
+
 function costSectionHtml(cost: CostData): string {
   const breakdownRows = cost.estimatedNested.breakdown
     .map((r) => `<tr><td>${esc(r.stage)}</td><td>${esc(r.count)}</td><td>${fmtTokens(r.estimatedTokens)}</td></tr>`)
@@ -197,6 +218,7 @@ function costSectionHtml(cost: CostData): string {
   <section>
     <h2>Appendix: pipeline cost</h2>
     <div class="card methodology">
+      ${cost.budget ? budgetBannerHtml(cost.budget) : ''}
       <p>This baseline run used model <code>${esc(cost.model)}</code> ($${cost.pricing.inputPerMTok}/$${cost.pricing.outputPerMTok} per MTok input/output).</p>
 
       <h4>Measured</h4>
@@ -255,7 +277,7 @@ function storybookGapsHtml(gaps: StorybookGap[]): string {
 }
 
 export function renderReport(input: ReportInput): string {
-  const { score, findings, dismissed, executiveSummary, coverage } = input;
+  const { score, findings, dismissed, executiveSummary, coverage, cost } = input;
   const grouped = findingsByCategoryThenSeverity(findings);
 
   const categoryCards = Object.entries(score.byCategory)
@@ -412,6 +434,12 @@ export function renderReport(input: ReportInput): string {
   .dep-summary code { background: var(--border); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
   .dep-summary .mono { color: var(--text); }
 
+  .budget-exceeded {
+    background: #fffbeb; border: 1px solid var(--grade-c); color: var(--text);
+  }
+  .budget-exceeded p { margin: 0 0 0.5rem; }
+  .budget-exceeded p:last-child { margin-bottom: 0; }
+
   .finding-list { list-style: none; margin: 0; padding: 0; }
   .finding { border-top: 1px solid var(--border); padding: 0.85rem 0; }
   .finding:first-child { border-top: none; }
@@ -461,6 +489,8 @@ export function renderReport(input: ReportInput): string {
 </div></header>
 
 <div class="page">
+
+  ${cost?.budget?.exceeded ? `<section>${budgetBannerHtml(cost.budget)}</section>` : ''}
 
   <section>
     <h2>Executive summary</h2>
