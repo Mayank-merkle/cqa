@@ -83,6 +83,75 @@ describe('renderReport', () => {
     expect(html).toContain('79');
   });
 
+  it('renders "Reviewed and dismissed" as a collapsed <details> block, not an always-open section', () => {
+    const html = renderReport({
+      score: {
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        overall: { grade: 'B', pointsPerKloc: 1.8, totalWeightedPoints: 90, kloc: 50 },
+        byCategory: { Security: { grade: 'C', pointsPerKloc: 3, findingCount: 1 } },
+        excludedFromScore: { refuted: 1, needsContext: 1 },
+      },
+      findings: [finding('a', 'Critical')],
+      dismissed: {
+        refuted: [{ id: 'r1', category: 'Some category', severity: 'High', rationale: 'Context disproved it.' }],
+        needsContext: [{ id: 'n1', category: 'Other category', severity: 'Medium', rationale: 'Origin of the value is unclear.' }],
+      },
+      executiveSummary: 'Summary.',
+      coverage: { totalFiles: 10, sourceFiles: 8, excludedFiles: 2, excludedByReason: {}, reviewedPct: 80, notMeasured: [] },
+    });
+
+    // The dismissed content sits inside a <details> (collapsed by default, no `open` attribute),
+    // reusing the same collapsible pattern as the per-category finding blocks.
+    const detailsStart = html.indexOf('<details class="category-block">\n      <summary>Refuted and needs-context items');
+    expect(detailsStart).toBeGreaterThan(-1);
+    expect(html.slice(detailsStart, detailsStart + 60)).not.toContain(' open');
+    expect(html).toContain('Context disproved it.');
+  });
+
+  it('explains the storybook/exclusion relationship and uses a wrapping-friendly table for the gap description', () => {
+    const html = renderReport({
+      ...{
+        score: {
+          generatedAt: '2026-01-01T00:00:00.000Z',
+          overall: { grade: 'B', pointsPerKloc: 1.8, totalWeightedPoints: 90, kloc: 50 },
+          byCategory: { Security: { grade: 'C', pointsPerKloc: 3, findingCount: 1 } },
+          excludedFromScore: { refuted: 0, needsContext: 0 },
+        },
+        findings: [finding('a', 'Critical')],
+        dismissed: { refuted: [], needsContext: [] },
+        executiveSummary: 'Summary.',
+        coverage: {
+          totalFiles: 10,
+          sourceFiles: 8,
+          excludedFiles: 2,
+          excludedByReason: { 'storybook story': 3 },
+          reviewedPct: 80,
+          notMeasured: [],
+        },
+      },
+      storybookGaps: [
+        { component: 'src/basics/layoutTokens/layoutTokens.tsx', prop: 'isFullWidth', description: 'declares `isFullWidth?: boolean` (default false) which toggles a `fullWidth` CSS class on each rendered card, but every story in layoutTokens.stories.tsx leaves it unset.' },
+      ],
+    });
+
+    // The two storybook mentions (exclusion-table row vs. the prop-coverage section) are
+    // explicitly connected instead of reading as contradictory.
+    expect(html).toContain('Story files are excluded from the code-quality review above');
+    expect(html).toContain('checked separately here');
+
+    // Uses the dedicated gap-table class, not exclusion-table (whose narrow
+    // last-column rule is what crushed the Gap column into a vertical stack).
+    expect(html).toContain('<table class="gap-table">');
+    expect(html).not.toMatch(/<table class="exclusion-table">[^<]*<thead><tr><th>Component/);
+
+    // Collapsed by default, same pattern as "Reviewed and dismissed" and the
+    // per-category finding blocks — not an always-open wall of 143 rows.
+    const storybookDetailsStart = html.indexOf('<summary>Storybook prop coverage');
+    expect(storybookDetailsStart).toBeGreaterThan(-1);
+    const precedingTag = html.lastIndexOf('<details', storybookDetailsStart);
+    expect(html.slice(precedingTag, storybookDetailsStart)).not.toContain(' open');
+  });
+
   it('renders npm-audit findings as a one-paragraph summary, separate from code findings', () => {
     const dependencyFinding: JudgedFinding = {
       id: 'npm-audit:lodash:abc123',

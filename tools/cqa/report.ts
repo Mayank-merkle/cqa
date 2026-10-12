@@ -261,19 +261,38 @@ function testCoverageHtml(tc: TestCoverageData): string {
 
 // Storybook prop/variant coverage gaps — a coverage-gap check, not a
 // story-quality opinion; also reported rather than scored, same reasoning as
-// Jest coverage above.
+// Jest coverage above. Note this is a DIFFERENT signal than the "storybook
+// story" row in the exclusion table above: that row says story files
+// themselves are excluded from the code-quality *source* review (they aren't
+// application logic); this section separately checks, for a component that
+// HAS a colocated story, whether that story exercises every prop/variant the
+// component accepts. The two aren't in tension — exclude-from-review and
+// check-story-completeness are orthogonal questions — but said back to back
+// without a connector they read as contradictory, hence the explicit note.
+const STORYBOOK_INTRO =
+  '<p class="coverage-note">Story files are excluded from the code-quality review above (they aren’t application logic) — but when a component has a colocated <code>.stories.tsx</code>, its prop/variant surface is checked separately here: does the story actually demonstrate every prop the component accepts.</p>';
+
 function storybookGapsHtml(gaps: StorybookGap[]): string {
-  if (!gaps.length) return '<h4>Storybook prop coverage</h4><p class="empty">No gaps found (or this run had no colocated component/story pairs).</p>';
+  if (!gaps.length) {
+    return `<details class="category-block">
+      <summary>Storybook prop coverage <span class="count-chip">0</span></summary>
+      ${STORYBOOK_INTRO}
+      <p class="empty">No gaps found (or this run had no colocated component/story pairs).</p>
+    </details>`;
+  }
   const rows = gaps
     .slice(0, 30)
     .map((g) => `<tr><td class="mono">${esc(g.component)}</td><td class="mono">${esc(g.prop)}</td><td>${esc(g.description)}</td></tr>`)
     .join('\n');
   const more = gaps.length > 30 ? `<p class="empty">...and ${gaps.length - 30} more.</p>` : '';
   return `
-  <h4>Storybook prop coverage</h4>
-  <p>${gaps.length} prop(s)/variant(s) not exercised by any <code>.stories.tsx</code> for their component:</p>
-  <table class="exclusion-table"><thead><tr><th>Component</th><th>Prop</th><th>Gap</th></tr></thead><tbody>${rows}</tbody></table>
-  ${more}`;
+  <details class="category-block">
+    <summary>Storybook prop coverage <span class="count-chip">${gaps.length}</span></summary>
+    ${STORYBOOK_INTRO}
+    <p>${gaps.length} prop(s)/variant(s) not exercised by any <code>.stories.tsx</code> for their component:</p>
+    <table class="gap-table"><thead><tr><th>Component</th><th>Prop</th><th>Gap</th></tr></thead><tbody>${rows}</tbody></table>
+    ${more}
+  </details>`;
 }
 
 export function renderReport(input: ReportInput): string {
@@ -466,6 +485,20 @@ export function renderReport(input: ReportInput): string {
   table.exclusion-table th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
   table.exclusion-table td:last-child, table.exclusion-table th:last-child { text-align: right; width: 5rem; }
 
+  /* Separate from .exclusion-table: that table's last column is always a
+     short count, so it's pinned to a narrow right-aligned width. This
+     table's last column (a free-text gap description) needs the opposite —
+     room to wrap normally — so it gets its own rule set rather than
+     inheriting the narrow-last-column behavior. */
+  table.gap-table { border-collapse: collapse; width: 100%; margin: 0.75rem 0 1.25rem; font-size: 0.9rem; table-layout: fixed; }
+  table.gap-table th, table.gap-table td {
+    border-bottom: 1px solid var(--border); padding: 0.5rem 0.75rem 0.5rem 0; text-align: left; vertical-align: top;
+    overflow-wrap: break-word;
+  }
+  table.gap-table th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+  table.gap-table th:nth-child(1), table.gap-table td:nth-child(1) { width: 32%; }
+  table.gap-table th:nth-child(2), table.gap-table td:nth-child(2) { width: 18%; }
+
   .methodology h4 { font-size: 0.95rem; margin: 1.5rem 0 0.5rem; }
   .methodology h4:first-child { margin-top: 0; }
   table.method-table { border-collapse: collapse; margin: 0.5rem 0 1rem; font-size: 0.9rem; width: auto; min-width: 260px; }
@@ -521,12 +554,13 @@ export function renderReport(input: ReportInput): string {
 
   <section>
     <h2>Reviewed and dismissed</h2>
-    <div class="card">
+    <details class="category-block">
+      <summary>Refuted and needs-context items <span class="count-chip">${dismissed.refuted.length + dismissed.needsContext.length}</span></summary>
       <h4>Refuted (${dismissed.refuted.length})</h4>
       ${dismissedListHtml(dismissed.refuted)}
       <h4>Needs further context (${dismissed.needsContext.length})</h4>
       ${dismissedListHtml(dismissed.needsContext)}
-    </div>
+    </details>
   </section>
 
   <section>
