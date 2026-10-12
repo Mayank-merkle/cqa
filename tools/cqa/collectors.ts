@@ -289,23 +289,65 @@ export function collectTestCoverage(repoRoot: string, cfg: AdapterConfig): TestC
   return { ran: true, threshold, overallPct, lowCoverageFiles, note: `${overallPct.toFixed(1)}% overall line coverage, ${lowCoverageFiles.length} file(s) below ${threshold}%` };
 }
 
-// Merge candidate lists. Light dedupe: collapse the known regex/eslint overlap
-// (raw <img>) by dropping the first-party regex finding where eslint already
-// covers the same location. Deeper semantic dedupe is the judgment pass's job.
+// Known collector-pair overlaps: a first-party regex rule and an eslint rule
+// that can flag the exact same construct. When both fire at the same
+// evidence location, keep eslint's hit (AST-based — no false positives from
+// string/comment context a line-regex can be fooled by) and drop that
+// location from the regex hit; otherwise the same real issue would score
+// twice under two different ruleIds, inflating that category's density.
+//
+// This is deliberately a declarative allowlist, not a blind "same file:line
+// from any two collectors = duplicate" rule: two different, unrelated issues
+// legitimately landing on the same line (e.g. an unused-variable lint warning
+// on a line that also has a stale TODO comment) must NOT collapse into one.
+// Add an entry here whenever a new patterns.ts rule has a known eslint
+// equivalent; anything not listed here is left for the judgment pass's
+// semantic dedupe, per the existing limitation this generalizes.
+interface CollectorOverlap {
+  regexRuleId: string;
+  eslintRuleIds: string[]; // eslint ruleId(s) (without the 'eslint:' prefix) covering the same construct
+}
+
+const KNOWN_OVERLAPS: CollectorOverlap[] = [
+  { regexRuleId: 'next.raw-img-tag', eslintRuleIds: ['@next/next/no-img-element'] },
+  { regexRuleId: 'general.any-type', eslintRuleIds: ['@typescript-eslint/no-explicit-any'] },
+  { regexRuleId: 'general.var-keyword', eslintRuleIds: ['no-var'] },
+  { regexRuleId: 'general.console-log', eslintRuleIds: ['no-console'] },
+  { regexRuleId: 'general.ts-suppression', eslintRuleIds: ['@typescript-eslint/ban-ts-comment', 'eslint-comments/no-use'] },
+];
+
+// Merge candidate lists, trimming (not just dropping) known cross-collector
+// overlaps: a regex candidate loses only the specific evidence locations
+// eslint already covers, keeping any locations eslint's config doesn't catch
+// (e.g. a repo with that eslint rule disabled, or a location outside eslint's
+// lint glob). A candidate left with zero evidence after trimming is dropped
+// entirely rather than kept as an empty, meaningless entry.
 export function mergeCandidates(lists: Candidate[][]): Candidate[] {
   const all = lists.flat();
-  const eslintImgLocs = new Set<string>();
-  for (const c of all) {
-    if (c.collector === 'eslint' && c.ruleId.includes('no-img-element')) {
-      for (const e of c.evidence) eslintImgLocs.add(`${e.file}:${e.line}`);
+
+  const eslintLocsByRegexRule = new Map<string, Set<string>>();
+  for (const overlap of KNOWN_OVERLAPS) {
+    const locs = new Set<string>();
+    for (const c of all) {
+      if (c.collector === 'eslint' && overlap.eslintRuleIds.some((id) => c.ruleId === `eslint:${id}`)) {
+        for (const e of c.evidence) locs.add(`${e.file}:${e.line}`);
+      }
     }
+    if (locs.size) eslintLocsByRegexRule.set(overlap.regexRuleId, locs);
   }
-  const kept = all.filter((c) => {
-    if (c.collector === 'regex' && c.ruleId === 'next.raw-img-tag') {
-      return !c.evidence.every((e) => eslintImgLocs.has(`${e.file}:${e.line}`));
+
+  const kept: Candidate[] = [];
+  for (const c of all) {
+    const eslintLocs = c.collector === 'regex' ? eslintLocsByRegexRule.get(c.ruleId) : undefined;
+    if (!eslintLocs) {
+      kept.push(c);
+      continue;
     }
-    return true;
-  });
+    const remaining = c.evidence.filter((e) => !eslintLocs.has(`${e.file}:${e.line}`));
+    if (!remaining.length) continue; // fully covered by eslint elsewhere — drop
+    kept.push(remaining.length === c.evidence.length ? c : { ...c, evidence: remaining, occurrences: remaining.length });
+  }
+
   const sevRank: Record<Severity, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
   kept.sort((a, b) => sevRank[a.severity] - sevRank[b.severity] || b.occurrences - a.occurrences);
   return kept;
