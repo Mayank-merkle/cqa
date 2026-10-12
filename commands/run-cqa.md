@@ -10,6 +10,11 @@ You are running the complete CQA pipeline from scratch against **the user's curr
 
 **Critical operational rule — read this before dispatching anything:** when you dispatch your own subagents for a batch (discovery units, discovery-judgment batches, reconciliation), send all of that batch's `Agent` calls together in **one message, in the foreground** (i.e. do not pass `run_in_background: true`, and do not use the `Monitor` tool or any background-wait-and-poll pattern on your own dispatched children). Foreground calls sent together in one message run concurrently and return their results directly in that same tool round. Using background dispatch + waiting on your own subagents has been observed to repeatedly trigger a harness handback mid-task, stalling progress across many turns for no benefit. Keep each batch to a handful of agents (roughly 6-10) rather than firing all of them at once.
 
+**Budget cap — $100 per full run, never a reason to bail:** this run has a hard spend cap of **$100** (blended at the Step 10 pricing table's $3.6/MTok rate, i.e. roughly 27.8M total tokens). After *every* subagent batch you dispatch in Steps 4, 6, 7, and 9, add that batch's `subagent_tokens` to a running total you keep for the whole run, and convert it to an estimated dollar figure (`runningTokens * 3.6 / 1e6`). The moment that running estimate reaches $100:
+- **Stop dispatching any further subagent batches** — for the rest of the pipeline, not just the current stage (e.g. if the cap is hit partway through Reconciliation, also skip any Discovery/Discovery-judgment/Refutation batches that hadn't been dispatched yet, if the stages are still pending; if they already ran, their results stand).
+- **Do not stop the pipeline.** Every remaining deterministic step still runs on whatever was actually collected: run the `merge-*.ts` / `apply-*.ts` script for every stage as normal (a stage with zero dispatched batches simply merges an empty result — that's a legitimate, honest partial output, same principle as the existing "empty array is a legitimate result" rule in Step 7), then proceed through Steps 10, 11, and 12 unconditionally. The deliverable is always a complete, valid `report.html` — on a partial scan if the cap was hit, never no report at all.
+- **Disclose it, loudly, in both places that need it:** record it in `cost.json`'s `budget` field (shape in Step 10) with which stage dispatch stopped at and what was skipped, and say it plainly in your final summary to the user (don't bury it) — per the existing Step 7 principle that a reduced scope must be an explicit, disclosed choice, never a silent partial pass presented as complete.
+
 ## Step 0 — Bootstrap the plugin's own dependencies
 
 The engine's `graph.ts` imports the `typescript` npm package to resolve the *target* project's own `tsconfig.json`/import paths — that's a dependency of the plugin itself, not of the project being scanned. If `${CLAUDE_PLUGIN_ROOT}/node_modules` doesn't exist yet, run `npm install` with `${CLAUDE_PLUGIN_ROOT}` as the working directory before anything else (e.g. `cd "${CLAUDE_PLUGIN_ROOT}" && npm install`). Skip this if `node_modules` is already present.
@@ -34,7 +39,7 @@ Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/VERSION_BRIEF.md` exactly: read the proj
 
 Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/prepare-docs-brief.ts" "${CLAUDE_PROJECT_DIR}"` → `project-docs-input.json`.
 
-Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/PROJECT_DOCS_BRIEF.md` exactly: skim the discovered markdown files in the user's own project, read and summarize the ones with real operational/architectural content, tag each with the file patterns it's relevant to, write `${CLAUDE_PROJECT_DIR}/.claude/cqa/project-docs-brief.json`. This exists because a project's own docs explain *why* a pattern is built the way it is — e.g. a documented multi-query fan-out workaround for a CMS response-size limit — which the discovery pass needs to avoid misreading a deliberate design as a bug. Don't skip this even if nothing is worth summarizing; write the file with empty `entries` either way.
+Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/PROJECT_DOCS_BRIEF.md` exactly: skim the discovered markdown files in the user's own project, read and summarize the ones with real operational/architectural content, tag each with the file patterns it's relevant to, write `${CLAUDE_PROJECT_DIR}/.claude/cqa/project-docs-brief.json`. This exists for two reasons: a project's own docs explain *why* a pattern is built the way it is — e.g. a documented multi-query fan-out workaround for a CMS response-size limit — which the discovery pass needs to avoid misreading a deliberate design as a bug (the `summary` field); and a project's own docs, especially a root `CLAUDE.md`, often state explicit house rules ("API routes must validate input with zod") that the discovery pass should actively check for violations of (the `rules` field). **Always read the target repo's root `CLAUDE.md` if one exists** — it's the project's canonical AI-facing instruction file and the highest-confidence source of house rules, never skip it as "generic." Don't skip this step even if nothing is worth summarizing; write the file with empty `entries` either way.
 
 ## Step 4 — Discovery pass (per work unit)
 
@@ -46,7 +51,7 @@ Then: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/merge-discovery.ts" "${CLAUDE_PR
 
 Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/prepare-judgment.ts" "${CLAUDE_PROJECT_DIR}"` → `judgment-input.json`.
 
-Per `${CLAUDE_PLUGIN_ROOT}/tools/cqa/JUDGMENT.md`, this input is small — judge it yourself directly in one pass (the doc explicitly says no subagent fan-out is needed here). Write `${CLAUDE_PROJECT_DIR}/.claude/cqa/verdicts.json`, then run `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/apply-verdicts.ts" "${CLAUDE_PROJECT_DIR}"` → `findings.json`.
+Per `${CLAUDE_PLUGIN_ROOT}/tools/cqa/JUDGMENT.md`'s "Scale" section: if `judgment-input.json` has 40 items or fewer, judge it yourself directly in one pass — no subagent fan-out needed. If it has more than 40 (a large eslint/npm-audit candidate volume), split into batches of ~35-40 and dispatch one subagent per batch, **model sonnet, foreground, batched per the operational rule above**, each writing its own batch-verdicts file to the scratchpad directory and following the doc exactly; then verify every input `id` has a matching verdict by diffing ids per batch (not just counts) before merging into one array. Either way, write the combined result to `${CLAUDE_PROJECT_DIR}/.claude/cqa/verdicts.json`, then run `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/apply-verdicts.ts" "${CLAUDE_PROJECT_DIR}"` → `findings.json`.
 
 ## Step 6 — Discovery-judgment (the AI-found findings, skeptical re-review)
 
@@ -82,7 +87,7 @@ Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/REFUTE.md` exactly for every High/Critic
 
 ## Step 10 — Cost accounting
 
-Tally the token usage actually reported back to you (via task-notification `<subagent_tokens>` tags) for every subagent you directly dispatched in Steps 4, 6, 7, and 9 — this is your "measured" figure. Nested work you can't see (e.g. if a dispatched agent itself spawned further agents, which it shouldn't per the rules above) has no visibility; note that explicitly rather than guessing at it. Write `${CLAUDE_PROJECT_DIR}/.claude/cqa/cost.json` matching this shape:
+Tally the token usage actually reported back to you (via task-notification `<subagent_tokens>` tags) for every subagent you directly dispatched in Steps 4, 6, 7, and 9 — this is your "measured" figure (the same running total you were already keeping for the budget cap above). Nested work you can't see (e.g. if a dispatched agent itself spawned further agents, which it shouldn't per the rules above) has no visibility; note that explicitly rather than guessing at it. Write `${CLAUDE_PROJECT_DIR}/.claude/cqa/cost.json` matching this shape:
 
 ```json
 {
@@ -93,9 +98,17 @@ Tally the token usage actually reported back to you (via task-notification `<sub
   "estimatedNested": { "tokens": 0, "description": "No nested dispatch occurred this run — every subagent you dispatched reported directly.", "breakdown": [] },
   "totalEstimateTokens": <measured + estimatedNested>,
   "costEstimateUsd": { "low": <total*2/1e6>, "central": <total*3.6/1e6>, "high": <total*10/1e6> },
-  "caveat": "<note any genuinely unobserved nested cost, or state there was none>"
+  "caveat": "<note any genuinely unobserved nested cost, or state there was none>",
+  "budget": {
+    "capUsd": 100,
+    "exceeded": <true iff the running estimate reached $100 at any point and you stopped dispatching further batches>,
+    "stoppedAtStage": "<e.g. 'Reconciliation (batch 12 of 31)' — omit if not exceeded>",
+    "skipped": "<plain-English description of exactly what was skipped as a result, e.g. 'Reconciliation batches 13-31 and Refutation were not run; scoring/report cover only what was collected through batch 12.' — omit if not exceeded>"
+  }
 }
 ```
+
+`budget.exceeded: false` is the common case and should still be written (with `capUsd` only) so the report can positively confirm the cap wasn't hit, not just omit the field.
 
 ## Step 11 — Score and report
 
@@ -105,4 +118,4 @@ Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/scorer.ts" "${CLAUDE_PROJECT_DIR}
 
 Confirm all of these exist under `${CLAUDE_PROJECT_DIR}/.claude/cqa/` (`project-docs-brief.json` may legitimately have empty `entries` if no project docs were worth summarizing, and `storybook-coverage-findings.json` may legitimately be `[]`, but both files must exist): `manifest.json`, `candidates.json`, `version-brief.json`, `project-docs-brief.json`, `discovery-findings.json`, `unit-summaries.json`, `findings.json`, `discovery-findings.judged.json`, `reconciliation-findings.json`, `storybook-coverage-findings.json`, `holistic.json`, `refute-result.json`, `score.json`, `cost.json`, `report.html`. `coverage-summary.json` exists only if the adapter's `testCoverage` collector is enabled — don't treat its absence as an error otherwise.
 
-Report back to the user: the overall grade, per-category grades, total scored findings (AI-found vs tool-found split), and the cost estimate — then tell them `.claude/cqa/report.html` (in their own project) is ready and offer to open it.
+Report back to the user: the overall grade, per-category grades, total scored findings (AI-found vs tool-found split), and the cost estimate — then tell them `.claude/cqa/report.html` (in their own project) is ready and offer to open it. **If the $100 budget cap was reached, lead with that** (don't let it be a footnote): say plainly that this is a partial run, what stage it stopped at, and what was skipped — the same disclosure that's already in `cost.json`'s `budget` field and the report's own top-of-page banner.
