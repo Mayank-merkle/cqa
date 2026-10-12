@@ -220,6 +220,32 @@ cross-cluster edges from Stage 2 and reviews them separately. So the full
 shape is: graph → cluster (module-level review) → reconciliation
 (cross-module review) — not a flat per-file pass.
 
+### Why these specific packages and not every dependency in package.json?
+
+`detectVersions()` only reports versions for an adapter's
+`versionRelevantPackages` (`config.ts`) — framework/runtime packages whose
+version-specific API surface and breaking-change history actually matter to
+Discovery's judgment calls (e.g. "is this a valid Next.js 16 pattern"), not
+every library in `package.json`. Two reasons this is deliberately narrow
+rather than exhaustive:
+
+- **Cost.** Each package costs 2 Context7 calls (`resolve-library-id` +
+  `query-docs`) in `VERSION_BRIEF.md`. A typical `package.json` has dozens of
+  dependencies; querying all of them would multiply API usage for little
+  benefit, since most dependencies (utility libraries, build tooling) don't
+  have version-contingent behavioral assumptions worth grounding Discovery
+  against.
+- **Relevance.** Only a handful of packages define the kind of API surface
+  Discovery actually reasons about — framework conventions, data-fetching
+  patterns, auth flows. A date-formatting library's version rarely changes
+  what counts as a code-quality issue; `next`'s does.
+
+Each adapter defines its own list:
+`nextContentful` → `next`, `react`, `typescript`, `next-auth`;
+`awsLambdaCdk` → `aws-cdk-lib`, `constructs`, `aws-lambda`,
+`@types/aws-lambda`, `typescript`. At 2 calls/package, that's at most 8 calls
+per run for either stack.
+
 ### Does the pipeline require a Context7 API key?
 
 No. `VERSION_BRIEF.md` is written to degrade gracefully: if Context7 is

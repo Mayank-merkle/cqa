@@ -26,6 +26,7 @@ const cfg: AdapterConfig = {
   testCoverageCmd: '',
   coverageSummaryPath: 'coverage/coverage-summary.json',
   coverageThreshold: 80,
+  versionRelevantPackages: [],
 };
 
 describe('extractPropsFromComponent', () => {

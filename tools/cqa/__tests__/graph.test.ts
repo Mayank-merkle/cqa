@@ -22,6 +22,7 @@ const cfg: AdapterConfig = {
   testCoverageCmd: '',
   coverageSummaryPath: 'coverage/coverage-summary.json',
   coverageThreshold: 80,
+  versionRelevantPackages: [],
 };
 
 function fileRecord(path: string, role: FileRecord['role']): FileRecord {

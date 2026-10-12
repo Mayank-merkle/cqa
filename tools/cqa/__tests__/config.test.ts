@@ -14,7 +14,7 @@ describe('detectVersions', () => {
       })
     );
 
-    const versions = detectVersions(dir);
+    const versions = detectVersions(dir, ['next', 'react', 'typescript', 'next-auth']);
 
     expect(versions).toEqual({
       next: '15.5.18',
@@ -24,10 +24,22 @@ describe('detectVersions', () => {
     });
   });
 
+  it('only reports the requested packages', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cqa-config-'));
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { 'aws-cdk-lib': '2.150.0', next: '15.5.18' } })
+    );
+
+    const versions = detectVersions(dir, ['aws-cdk-lib', 'constructs']);
+
+    expect(versions).toEqual({ 'aws-cdk-lib': '2.150.0', constructs: 'unknown' });
+  });
+
   it('returns an empty object when package.json is missing', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cqa-config-'));
 
-    const versions = detectVersions(dir);
+    const versions = detectVersions(dir, ['next']);
 
     expect(versions).toEqual({});
   });
@@ -36,7 +48,7 @@ describe('detectVersions', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cqa-config-'));
     writeFileSync(join(dir, 'package.json'), '{ not valid json');
 
-    const versions = detectVersions(dir);
+    const versions = detectVersions(dir, ['next']);
 
     expect(versions).toEqual({});
   });

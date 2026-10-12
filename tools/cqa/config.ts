@@ -38,6 +38,12 @@ export interface AdapterConfig {
   coverageSummaryPath: string;
   // Line-coverage percentage below which a file is flagged as low-coverage.
   coverageThreshold: number;
+  // Packages whose version-specific API surface actually matters to this
+  // stack's discovery pass (framework/runtime packages with meaningful
+  // breaking-change history), not every dependency in package.json — each
+  // costs 2 Context7 calls (resolve-library-id + query-docs) in
+  // VERSION_BRIEF.md, so this is deliberately narrow.
+  versionRelevantPackages: string[];
 }
 
 // All dependencies (prod + dev) declared in repoRoot/package.json. Shared by
@@ -48,16 +54,19 @@ function readAllDependencies(repoRoot: string): Record<string, string> {
   return { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
 }
 
-export function detectVersions(repoRoot: string): Record<string, string> {
+// Reports versions only for `packages` (an adapter's `versionRelevantPackages`)
+// rather than every dependency in package.json — see that field's comment for
+// why. A requested package absent from the repo is reported as 'unknown'
+// rather than omitted, so VERSION_BRIEF.md's fallback has something to key on.
+export function detectVersions(repoRoot: string, packages: string[]): Record<string, string> {
   try {
     const deps = readAllDependencies(repoRoot);
     const clean = (v?: string) => (v ? v.replace(/^[\^~]/, '') : 'unknown');
-    return {
-      next: clean(deps.next),
-      react: clean(deps.react),
-      typescript: clean(deps.typescript),
-      'next-auth': clean(deps['next-auth'])
-    };
+    const versions: Record<string, string> = {};
+    for (const pkg of packages) {
+      versions[pkg] = clean(deps[pkg]);
+    }
+    return versions;
   } catch {
     return {};
   }
@@ -137,7 +146,8 @@ export const nextContentful: AdapterConfig = {
   npmAuditCmd: 'npm audit --json',
   testCoverageCmd: 'npm test -- --coverage --coverageReporters=json-summary',
   coverageSummaryPath: 'coverage/coverage-summary.json',
-  coverageThreshold: 80
+  coverageThreshold: 80,
+  versionRelevantPackages: ['next', 'react', 'typescript', 'next-auth']
 };
 
 // AWS Lambda/AppSync/CDK adapter, verified against the real DotcomV2-AppSync
@@ -207,7 +217,12 @@ export const awsLambdaCdk: AdapterConfig = {
   npmAuditCmd: 'npm audit --json',
   testCoverageCmd: 'npm test -- --coverage --coverageReporters=json-summary',
   coverageSummaryPath: 'coverage/coverage-summary.json',
-  coverageThreshold: 80
+  coverageThreshold: 80,
+  // aws-lambda/@types/aws-lambda and aws-cdk-lib/constructs are this stack's
+  // equivalents of next/react above — the packages whose breaking-change
+  // history actually affects what the discovery pass should flag. typescript
+  // carries over since both stacks compile through it.
+  versionRelevantPackages: ['aws-cdk-lib', 'constructs', 'aws-lambda', '@types/aws-lambda', 'typescript']
 };
 
 // Registry of all known stack adapters, checked in order — first match wins.

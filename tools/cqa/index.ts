@@ -94,7 +94,7 @@ function runPipeline(repoRoot: string, cfg: AdapterConfig): { manifest: Manifest
 
   const manifest: Manifest = {
     stack: cfg.id,
-    detectedVersions: detectVersions(repoRoot),
+    detectedVersions: detectVersions(repoRoot, cfg.versionRelevantPackages),
     generatedAt: new Date().toISOString(),
     rulesVersion: RULES_VERSION,
     coverage,
