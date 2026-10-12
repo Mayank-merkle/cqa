@@ -275,3 +275,28 @@ before citing these figures as current.
   degradation when a leaf package has no `node_modules` installed, and
   correct skip-with-reason for unmatched workspaces) — smoke script and its
   output artifacts were thrown away after, not committed.
+- TODO: SonarQube rule-coverage via `eslint-plugin-sonarjs` — the user's
+  exported SonarQube quality-profile XML (HTML/TS/JS rule lists) is metadata
+  (which rules are enabled + severity), not the actual detection logic —
+  SonarSource's analyzer engines are closed-source. Most of the JS/TS `S####`
+  rules in the exported profile have open-source equivalents in
+  `eslint-plugin-sonarjs`; the realistic path to "Sonar benefit" is adding it
+  as a new collector (parallel to the existing `eslint` collector in
+  `collectors.ts`), configured to match the rules the user's profile has
+  enabled. The HTML-specific (`Web` repository) rules in the profile don't
+  have a good open equivalent and would stay uncovered unless custom regex
+  rules are written for the ones that matter most. Not started — no
+  collector, no rule mapping, no decision on which `sonarjs` rules to enable.
+- TODO: custom Next.js/React-specific pattern rules — a separate idea from
+  the Sonar-coverage item above, not a replacement for it: rules that catch
+  this stack's own foot-guns (patterns Sonar never covered because it has no
+  Next.js/React-specific ruleset at all). Not started — no concrete rule
+  list drafted yet.
+- TODO: `report.ts` test coverage gap — `testCoverageHtml` and
+  `storybookGapsHtml` (the two rendering functions added for the TestCoverage
+  dimension) have zero tests. Worth closing given this exact file has already
+  shipped two real rendering bugs (a clipped grade-letter CSS bug, a
+  horizontal-overflow bug from an unbroken string) that only surfaced via
+  live visual verification, not unit tests — the existing `report.test.ts`
+  pattern (fixture in, assert key strings/classes present in the HTML out)
+  extends to these two functions the same way.

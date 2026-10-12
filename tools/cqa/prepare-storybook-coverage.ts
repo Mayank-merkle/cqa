@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AdapterConfig } from './config';
+import { detectAdapter } from './config';
 import { enumerate } from './enumerate';
 
 // Deterministic prep for the Storybook coverage pass (code, no AI). This is a
@@ -139,7 +140,6 @@ export function buildStorybookCoverageInput(repoRoot: string, cfg: AdapterConfig
 function main() {
   const repoRoot = process.argv[2] ?? process.cwd();
   const dir = join(repoRoot, '.claude', 'cqa');
-  const { detectAdapter } = require('./config');
   const cfg: AdapterConfig = detectAdapter(repoRoot);
 
   const input = buildStorybookCoverageInput(repoRoot, cfg);
