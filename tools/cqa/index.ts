@@ -4,7 +4,7 @@ import { detectAdapter, detectVersions, detectWorkspaces } from './config';
 import type { AdapterConfig } from './config';
 import { enumerate } from './enumerate';
 import { buildUnits } from './graph';
-import rules from './patterns';
+import rules, { rulesForStack } from './patterns';
 import {
   collectRegex,
   collectEslint,
@@ -52,7 +52,7 @@ function runPipeline(repoRoot: string, cfg: AdapterConfig): { manifest: Manifest
   const statuses: CollectorStatus[] = [];
 
   if (cfg.collectors.regex) {
-    const r = collectRegex(repoRoot, files, rules, texts);
+    const r = collectRegex(repoRoot, files, rulesForStack(rules, cfg.id), texts);
     lists.push(r.candidates);
     statuses.push(r.status);
   }
