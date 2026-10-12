@@ -15,6 +15,32 @@ You are running the complete CQA pipeline from scratch against **the user's curr
 - **Do not stop the pipeline.** Every remaining deterministic step still runs on whatever was actually collected: run the `merge-*.ts` / `apply-*.ts` script for every stage as normal (a stage with zero dispatched batches simply merges an empty result — that's a legitimate, honest partial output, same principle as the existing "empty array is a legitimate result" rule in Step 7), then proceed through Steps 10, 11, and 12 unconditionally. The deliverable is always a complete, valid `report.html` — on a partial scan if the cap was hit, never no report at all.
 - **Disclose it, loudly, in both places that need it:** record it in `cost.json`'s `budget` field (shape in Step 10) with which stage dispatch stopped at and what was skipped, and say it plainly in your final summary to the user (don't bury it) — per the existing Step 7 principle that a reduced scope must be an explicit, disclosed choice, never a silent partial pass presented as complete.
 
+**Status reporting — keep this table visible throughout the run, not just at the end:** this is a long, mostly-silent task from the user's point of view otherwise. Print the table below to the chat once you reach Step 2 (fill in `Work units` once `manifest.json` exists), then **re-print the full table** (not a diff, not a single line) every time a step or sub-stage completes — after Steps 0, 1, 2, 3, 3.5, 4, 5, 6, each major milestone within Step 7 (e.g. every ~25% of target groups processed, not every single batch — Reconciliation can be 25-40+ batches and reprinting on every one would flood the chat), 7.5, 8, 9, 10, 11, and 12. Status values: `⏳ pending`, `🔄 in progress` (with a short detail, e.g. `batch 12/31`), `✅ done` (with a one-line result metric), `⏭️ skipped` (with the reason — only legitimate for 3.5 and 7.5 when there's genuinely nothing to summarize/check). Always include the running budget line underneath.
+
+```
+| Step | Status | Detail |
+|---|---|---|
+| 0. Bootstrap | ⏳ | |
+| 1. Preserve existing run | ⏳ | |
+| 2. Deterministic scan | ⏳ | |
+| 3. Version brief | ⏳ | |
+| 3.5. Project docs brief | ⏳ | |
+| 4. Discovery | ⏳ | |
+| 5. Static judgment | ⏳ | |
+| 6. Discovery-judgment | ⏳ | |
+| 7. Reconciliation | ⏳ | |
+| 7.5. Storybook coverage | ⏳ | |
+| 8. Holistic synthesis | ⏳ | |
+| 9. Refutation | ⏳ | |
+| 10. Cost accounting | ⏳ | |
+| 11. Score + report | ⏳ | |
+| 12. Verify | ⏳ | |
+
+Budget: $0.00 / $100 spent so far
+```
+
+Example of a filled-in row once known: `| 2. Deterministic scan | ✅ | 58 work units, stack: next-contentful |`, `| 7. Reconciliation | 🔄 | batch 12 of 31 (370 target groups) |`. This table is informational only — it never replaces the actual disclosure obligations elsewhere in this doc (the budget-cap paragraph above, the Step 7 exhaustiveness rule, Step 12's final summary); it's the running view of the same facts.
+
 ## Step 0 — Bootstrap the plugin's own dependencies
 
 The engine's `graph.ts` imports the `typescript` npm package to resolve the *target* project's own `tsconfig.json`/import paths — that's a dependency of the plugin itself, not of the project being scanned. If `${CLAUDE_PLUGIN_ROOT}/node_modules` doesn't exist yet, run `npm install` with `${CLAUDE_PLUGIN_ROOT}` as the working directory before anything else (e.g. `cd "${CLAUDE_PLUGIN_ROOT}" && npm install`). Skip this if `node_modules` is already present.
