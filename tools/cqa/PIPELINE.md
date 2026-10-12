@@ -255,6 +255,27 @@ explicit `"currentApiNotes": "unavailable — Context7 lookup failed"` entry
 per affected package instead of failing the run. Discovery proceeds either
 way, with less grounding for that package.
 
+### How do I give this project my own Context7 API key?
+
+Context7 is wired up as a project-scoped MCP server in `.mcp.json` (checked
+into the repo, so it applies automatically to anyone working in this
+project — not something each person has to configure in their own user-level
+Claude Code settings). Authentication is handled by
+`tools/cqa/context7-headers.js`, which Claude Code runs fresh on every
+connection (declared as that server's `headersHelper`) and reads the key
+from, in order:
+
+1. a `CONTEXT7_API_KEY` environment variable, if already set in your shell, or
+2. a `.env` file at the repo root (gitignored — never commit it; copy
+   `env.example` to `.env` and fill in your key there).
+
+If neither is present, the script prints an empty header set and exits 0
+rather than failing the connection — Context7 still works, just at the
+free-tier rate limit (see the next question for why that's rarely a real
+constraint). No one needs to touch `.mcp.json` or their own
+`~/.claude.json` to get grounded version briefs; dropping a `.env` file
+locally is enough.
+
 ### Why does Context7 need live network access / an API key instead of a local cache of docs for known versions?
 
 - **It's a live index, not a static snapshot.** Context7 continuously
