@@ -45,6 +45,8 @@ Example of a filled-in row once known: `| 2. Deterministic scan | ✅ | 58 work 
 
 The engine's `graph.ts` imports the `typescript` npm package to resolve the *target* project's own `tsconfig.json`/import paths — that's a dependency of the plugin itself, not of the project being scanned. If `${CLAUDE_PLUGIN_ROOT}/node_modules` doesn't exist yet, run `npm install` with `${CLAUDE_PLUGIN_ROOT}` as the working directory before anything else (e.g. `cd "${CLAUDE_PLUGIN_ROOT}" && npm install`). Skip this if `node_modules` is already present.
 
+Then run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/check-version.ts"` — a non-blocking check against the published repo for a newer release. It prints nothing if it can't reach GitHub, the install isn't from a github.com marketplace, or this is already the latest version; never treat its failure or silence as a problem. If it does print a newer-version notice, **relay that to the user in your first status update** (plugin marketplaces added by URL don't auto-update, so this is the only signal they'll get) — but keep running the pipeline regardless, this never blocks or delays the run itself.
+
 ## Step 1 — Preserve any existing run
 
 If `${CLAUDE_PROJECT_DIR}/.claude/cqa/manifest.json` already exists, move the entire `.claude/cqa/` directory (inside the user's project) to `.claude/cqa.bak-<today's date, YYYY-MM-DD>/` (plain filesystem rename, not git) before writing anything new. This is always a fresh baseline run, not an incremental update.
