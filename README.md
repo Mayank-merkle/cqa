@@ -32,6 +32,20 @@ In a Claude Code session, add this repo as a plugin marketplace and install it:
 Install at **user scope** (the default) so `/run-cqa` becomes available in
 every project on your machine, not just the one you installed it from.
 
+### Getting updates
+
+Marketplaces added by URL don't auto-update by default, so new commits here
+won't reach you automatically. To pick up the latest version:
+
+```
+/plugin marketplace update cqa
+/reload-plugins
+```
+
+(or `claude plugin marketplace update cqa && claude plugin update cqa@cqa`
+from a shell). To stop having to do this manually, turn on auto-update once:
+`/plugin` → **Marketplaces** → `cqa` → **Enable auto-update**.
+
 To try it without installing (for development):
 
 ```bash
