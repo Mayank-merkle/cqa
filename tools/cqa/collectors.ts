@@ -12,7 +12,10 @@ import { mapEslintRule } from './eslintMap';
 
 const MAX_EVIDENCE = 25;
 const MAX_SNIPPET = 200;
-const EXEC_TIMEOUT = 240_000;
+// 10 min, not 4: npm audit and jest --coverage both routinely blow past 4 minutes
+// on a corporate Windows box (AV real-time-scanning node_modules, proxied registry
+// calls) even though the same commands finish in well under a minute on CI.
+const EXEC_TIMEOUT = 600_000;
 const MAX_BUFFER = 256 * 1024 * 1024;
 
 function hash(s: string): string {

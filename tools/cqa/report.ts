@@ -636,6 +636,15 @@ function main() {
   const reconciliation = tryJSON(join(dir, 'reconciliation-findings.json'), []);
   const refuteResult = tryJSON(join(dir, 'refute-result.json'), { stands: [], refuted: [] });
   const manifest = readJSON(join(dir, 'manifest.json'));
+  // Unlike test-coverage, a failed npm-audit collector leaves zero dependency
+  // findings with no other trace in the report — the "Vulnerable dependencies"
+  // section just silently never appears. Surface it the same way test-coverage
+  // failure already is, via the "Not measured this run" list.
+  const npmAuditStatus = manifest.collectors?.find((c: { id: string }) => c.id === 'npm-audit');
+  const coverage: Coverage =
+    npmAuditStatus && npmAuditStatus.ran === false
+      ? { ...manifest.coverage, notMeasured: [...manifest.coverage.notMeasured, `Dependency vulnerability scan (npm audit) — ${npmAuditStatus.note}`] }
+      : manifest.coverage;
   const holistic = tryJSON(join(dir, 'holistic.json'), { observations: [] });
   const cost: CostData | undefined = tryJSON(join(dir, 'cost.json'), undefined);
   const testCoverage: TestCoverageData | undefined = tryJSON(join(dir, 'coverage-summary.json'), undefined);
@@ -664,7 +673,7 @@ function main() {
 
   const executiveSummary = holistic.observations?.[0]?.assessment ?? 'No holistic synthesis available for this run.';
 
-  const html = renderReport({ score, findings, dismissed, executiveSummary, coverage: manifest.coverage, cost, testCoverage, storybookGaps });
+  const html = renderReport({ score, findings, dismissed, executiveSummary, coverage, cost, testCoverage, storybookGaps });
   writeFileSync(join(dir, 'report.html'), html);
   console.log(`[cqa] report.html written (${findings.length} scored findings, grade ${score.overall.grade})`);
 }
