@@ -41,36 +41,6 @@ Budget: $0.00 / $100 spent so far
 
 Example of a filled-in row once known: `| 2. Deterministic scan | ✅ | 58 work units, stack: next-contentful |`, `| 7. Reconciliation | 🔄 | batch 12 of 31 (370 target groups) |`. This table is informational only — it never replaces the actual disclosure obligations elsewhere in this doc (the budget-cap paragraph above, the Step 7 exhaustiveness rule, Step 12's final summary); it's the running view of the same facts.
 
-## Monorepo mode — check this before Step 0
-
-Everything from Step 0 onward assumes a single package (one root `package.json`, one `.claude/cqa/`, one `report.html`). If `${CLAUDE_PROJECT_DIR}` has **no root `package.json`**, it's a monorepo of independently-deployable services (e.g. a fleet of Lambda/CDK packages) — `index.ts`'s own single-package path would throw "no stack adapter matched" if you tried to run it directly against the root, so detect this case first and branch here instead.
-
-This mode produces a **different kind of value** than the single-package flow: per-workspace findings (the same Steps 0-12 below, just run once per workspace) are only half of it — the other half is fleet-level signal no single workspace's pipeline can see on its own: duplicated code between services, how services actually couple to each other (shared infra, CDK cross-stack references), and dependency-version drift across the fleet. Don't skip straight to "run Steps 0-12 per workspace" without Phase A below — that's the cheap part that makes the expensive part (Phase B) worth scoping deliberately instead of guessing.
-
-### Phase A — deterministic fleet scan (free, fast, run this first)
-
-Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/monorepo.ts" "${CLAUDE_PROJECT_DIR}"`.
-
-This discovers every workspace (`detectWorkspaces()` — matched or not; a workspace with no matching adapter, e.g. a standalone migration-script directory, still gets mechanical duplication/cross-service scanning, just not the full AI pipeline — nothing is silently dropped), runs the existing per-workspace deterministic scan (Step 2, below) for every adapter-matched one, and runs fleet-wide duplication/cross-service/dependency-drift detection across literally every discovered workspace's files. Writes `${CLAUDE_PROJECT_DIR}/.claude/cqa/system-manifest.json`.
-
-**Stop and report back to the user here before Phase B.** This is the natural checkpoint: tell them how many workspaces were found, how many matched an adapter vs. mechanical-only, what duplication/cross-service edges turned up, and — critically — **ask what total budget cap to use for Phase B** (not the single-workspace $100 figure above, which would multiply to an uncapped number across N workspaces; a sane total depends on how many workspaces matched and how big they are, which you now know from this phase's output). Do not proceed to Phase B without this number.
-
-### Phase B — per-workspace AI pipeline (the expensive part, run only after Phase A + budget sign-off)
-
-For **every** workspace in `system-manifest.json`'s `workspaces` array with a non-null `adapterId`: run Steps 3 through 9 below exactly as written, substituting that workspace's own directory for `${CLAUDE_PROJECT_DIR}` in every path and CLI argument (Step 2 was already done by Phase A — don't re-run it). Each workspace's outputs stay namespaced under its own `<workspaceRoot>/.claude/cqa/`, same as Phase A already wrote its `manifest.json`/`candidates.json` there.
-
-**Size-adaptive depth — apply this per workspace, it's the main lever that keeps this affordable:** check that workspace's own `manifest.json` for `workUnits.length`. If it's **2 or fewer**, run Discovery (Step 4, one subagent covering the whole tiny workspace) and static Judgment (Step 5) only — skip Discovery-judgment, Reconciliation, Holistic, and Refutation entirely for that workspace (there's nothing for Reconciliation to cross-reference and nothing for Holistic to synthesize across in a 1-3-unit workspace), then go straight to that workspace's own Step 11 (scorer + report) using just the confirmed static findings. State this explicitly in that workspace's own report context (same "disclosed, not silent" principle as the budget cap) — don't let a skipped stage look like an oversight.
-
-Track **one running budget total across every workspace combined** (not reset per workspace) against the total figure the user gave you after Phase A. The moment it's reached, stop dispatching further batches for the **remaining workspaces** — the ones already fully processed keep their results, the current workspace finishes its in-flight batch then stops early per the existing per-workspace budget-cap rule above, and every workspace not yet started gets skipped with that recorded as the reason in `system-manifest.json`'s notes. Still proceed to Phase C regardless — same "always produce a report" principle as the single-workspace budget cap.
-
-### Phase C — fleet-level synthesis (cheap, run once regardless of fleet size)
-
-Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/prepare-system-holistic.ts" "${CLAUDE_PROJECT_DIR}"` → `system-holistic-input.json`.
-
-Follow `${CLAUDE_PLUGIN_ROOT}/tools/cqa/SYSTEM_HOLISTIC.md` exactly — one pass, no subagent fan-out (small, pre-aggregated input, same shape as the per-workspace `HOLISTIC.md`). Write `${CLAUDE_PROJECT_DIR}/.claude/cqa/system-holistic.json`.
-
-Run: `npx tsx "${CLAUDE_PLUGIN_ROOT}/tools/cqa/system-report.ts" "${CLAUDE_PROJECT_DIR}"` → `${CLAUDE_PROJECT_DIR}/.claude/cqa/report.html` — the fleet-level deliverable, linking out to each fully-reviewed workspace's own `report.html`. Report back to the user the same way Step 12 does for a single package: overall fleet shape (N/M workspaces fully reviewed), duplication/cross-service/drift headline numbers, total cost across every workspace, and whether the Phase B budget cap was reached.
-
 ## Step 0 — Bootstrap the plugin's own dependencies
 
 The engine's `graph.ts` imports the `typescript` npm package to resolve the *target* project's own `tsconfig.json`/import paths — that's a dependency of the plugin itself, not of the project being scanned. If `${CLAUDE_PLUGIN_ROOT}/node_modules` doesn't exist yet, run `npm install` with `${CLAUDE_PLUGIN_ROOT}` as the working directory before anything else (e.g. `cd "${CLAUDE_PLUGIN_ROOT}" && npm install`). Skip this if `node_modules` is already present.

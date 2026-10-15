@@ -301,34 +301,6 @@ export const rules: PatternRule[] = [
     source: 'pattern',
     stacks: ['aws-lambda-cdk'],
   },
-  {
-    id: 'aws.stateful-resource-config-check',
-    category: 'Stateful resource — verify removal policy / backup config',
-    dimension: 'Reliability',
-    severity: 'Medium',
-    // A single line can only ever flag the construct's declaration, not prove
-    // the absence of a nearby `removalPolicy`/`pointInTimeRecovery` prop a few
-    // lines down in its options block — that's exactly why this is a
-    // CANDIDATE for the judgment pass (which is given +/- a few lines of
-    // surrounding context) to confirm or dismiss, not a direct "missing"
-    // detection a line-regex structurally cannot make.
-    regex: /\bnew\s+(dynamodb\.Table|s3\.Bucket)\s*\(/,
-    description: 'A stateful resource (DynamoDB table / S3 bucket) construct — check the surrounding options block for an explicit removalPolicy (default DESTROY-on-replace for some constructs is a data-loss risk in prod) and, for a DynamoDB table, pointInTimeRecovery.',
-    suggestedFix: 'Set `removalPolicy: RemovalPolicy.RETAIN` for production stateful resources, and `pointInTimeRecovery: true` on DynamoDB tables holding data worth restoring.',
-    source: 'pattern',
-    stacks: ['aws-lambda-cdk'],
-  },
-  {
-    id: 'aws.legacy-aws-sdk-v2',
-    category: 'Legacy aws-sdk (v2) import',
-    dimension: 'Maintainability',
-    severity: 'Medium',
-    regex: /require\(\s*['"]aws-sdk['"]\s*\)|from\s+['"]aws-sdk['"]/,
-    description: 'aws-sdk v2 is in maintenance mode, bundles the entire SDK surface (slower cold starts), and lacks v3’s modular per-service clients.',
-    suggestedFix: 'Migrate to the modular `@aws-sdk/client-*` v3 packages for the specific services actually used.',
-    source: 'pattern',
-    stacks: ['aws-lambda-cdk'],
-  },
 ];
 
 export default rules;

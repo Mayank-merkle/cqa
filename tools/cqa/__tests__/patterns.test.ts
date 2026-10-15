@@ -60,18 +60,4 @@ describe('new pattern rules', () => {
     expect(rule.regex.test('for (const id of ids) { results.push(await fetchReviews(id)); }')).toBe(true);
     expect(rule.regex.test('const results = await Promise.all(ids.map(fetchReviews));')).toBe(false);
   });
-
-  it('flags a stateful CDK construct declaration for removal-policy/PITR review', () => {
-    const rule = byId.get('aws.stateful-resource-config-check')!;
-    expect(rule.regex.test("new dynamodb.Table(this, 'T', {")).toBe(true);
-    expect(rule.regex.test("new s3.Bucket(this, 'B', {")).toBe(true);
-    expect(rule.regex.test("new sqs.Queue(this, 'Q', {")).toBe(false);
-  });
-
-  it('flags a legacy aws-sdk v2 import but not a modular v3 client', () => {
-    const rule = byId.get('aws.legacy-aws-sdk-v2')!;
-    expect(rule.regex.test("import AWS from 'aws-sdk';")).toBe(true);
-    expect(rule.regex.test("const AWS = require('aws-sdk');")).toBe(true);
-    expect(rule.regex.test("import { DynamoDBClient } from '@aws-sdk/client-dynamodb';")).toBe(false);
-  });
 });
