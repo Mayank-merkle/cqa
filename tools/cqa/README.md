@@ -106,6 +106,38 @@ into a client-facing report:
    Storybook prop gaps → `.claude/cqa/report.html`. Run:
    `npx tsx tools/cqa/report.ts`.
 
+## Monorepo / fleet mode
+
+A target with no root `package.json` (a collection of independently-
+deployable services, e.g. a fleet of Lambda/CDK packages) is driven by
+`monorepo.ts` instead of the single-package path in `index.ts`'s `main()` —
+`commands/run-cqa.md`'s "Monorepo mode" section is the authoritative
+orchestration doc. Two things exist only in this mode, both running across
+**every** discovered workspace (adapter-matched or not — a workspace with no
+matching adapter still gets these two, just not the full AI pipeline):
+
+- **`duplication.ts`** — shingled/hashed near-duplicate code-block detection.
+  Works for a single workspace too (closes the `notMeasured: 'Exact
+  duplication %'` gap every `AdapterConfig` has always had), but its real
+  value in monorepo mode is cross-service: the same block of logic
+  re-implemented in two unrelated Lambda packages.
+- **`cross-service.ts`** — heuristic coupling detection for services that
+  don't talk via TypeScript imports (the compiler-based `graph.ts` is
+  correctly blind to this — each workspace is its own separate
+  `ts.createProgram`): CDK cross-stack `exportName`/`Fn.importValue` pairs,
+  two services independently referencing the same SSM/DynamoDB/SQS/SNS/
+  EventBridge resource name, and a CDK stack's `NodejsFunction` `entry:`
+  path resolving to a sibling lambda workspace.
+
+`monorepo.ts` also aggregates two fleet-level rollups from data each
+workspace's own run already produces (no new detection logic): dependency/
+runtime version drift across the fleet, and a per-workspace posture summary
+(candidate counts by dimension, test coverage %). Everything is written to
+`system-manifest.json`; `prepare-system-holistic.ts` + `SYSTEM_HOLISTIC.md`
+(the fleet-scale counterpart to the per-workspace `HOLISTIC.md`) synthesize
+it into a narrative, and `system-report.ts` renders the fleet-level
+`report.html`, linking out to each fully-reviewed workspace's own report.
+
 ## Extending it
 
 - **More collectors:** add to `collectors.ts` (e.g. Snyk `snyk test --json`).
@@ -122,7 +154,17 @@ into a client-facing report:
   `clusterFiles` keeps this to the rare feature area rather than most of the
   codebase, but when it happens the import that got split across units is
   recorded as a cross-cluster edge, so the reconciliation pass still covers it.
-- Cross-collector dedupe is light (one known overlap handled); full semantic
-  dedupe is the judgment pass's job — it won't confirm the same issue twice.
+- Cross-collector dedupe covers a declarative allowlist of known regex/eslint
+  rule overlaps (`collectors.ts`'s `KNOWN_OVERLAPS`), not every possible
+  overlap; full semantic dedupe is the judgment pass's job either way — it
+  won't confirm the same issue twice even for an overlap not on that list.
 - eslint output can be high-volume; curating it to a client-appropriate set is
   the judgment pass's job, not the driver's.
+- `duplication.ts` is exact/near-exact text matching (post-normalization),
+  not semantic/renamed-identifier matching — a copy-pasted-then-renamed block
+  won't be caught. It also reports N-way duplicates (the same block in 3+
+  locations) as separate pairwise blocks rather than one unified block.
+- `cross-service.ts` is heuristic: a shared literal string (an SSM path, a
+  table name) could coincidentally match across two genuinely unrelated
+  services. Candidates, not verified architecture — same trust model as
+  every other collector.

@@ -42,7 +42,11 @@ import type { Manifest, CollectorStatus } from './types';
 
 const RULES_VERSION = '2';
 
-function runPipeline(repoRoot: string, cfg: AdapterConfig): { manifest: Manifest; candidateCount: number } {
+// Exported so monorepo.ts can drive it per-workspace directly, without going
+// through this file's CLI main() (which is monorepo-count-and-log oriented,
+// not a reusable API). Behavior for the existing single-package CLI path is
+// unchanged.
+export function runPipeline(repoRoot: string, cfg: AdapterConfig): { manifest: Manifest; candidateCount: number } {
   console.log(`[cqa] scanning ${repoRoot} (${cfg.id})`);
 
   const { files, coverage } = enumerate(repoRoot, cfg);
@@ -174,4 +178,9 @@ function main() {
   console.log(`[cqa] wrote ${outDir}/workspaces.json`);
 }
 
-main();
+// Guarded so this file can be `import`ed for its exports (runPipeline) by
+// monorepo.ts without re-running the CLI scan as a side effect — the one
+// script in this directory that didn't already follow this pattern.
+if (require.main === module) {
+  main();
+}

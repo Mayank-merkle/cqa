@@ -1,17 +1,28 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import type { AdapterConfig } from './config';
 import type { FileRecord, FileRole, Coverage } from './types';
 
 // Walk srcDir recursively and classify every file. Deterministic — this is
 // where "scanning the whole codebase" actually happens (by the filesystem,
 // which has no context limit).
 
+// Only the fields this module actually reads — narrower than the full
+// AdapterConfig (which satisfies this structurally, so every existing caller
+// is unaffected) so monorepo.ts can enumerate a workspace that matched no
+// adapter at all using a minimal generic config, without needing to fabricate
+// an eslintCmd/npmAuditCmd/etc. it has no use for.
+export interface EnumerateConfig {
+  srcDir: string;
+  skip: { pattern: RegExp; reason: string }[];
+  entryMatchers: RegExp[];
+  notMeasured: string[];
+}
+
 function toRel(repoRoot: string, abs: string): string {
   return relative(repoRoot, abs).split(sep).join('/');
 }
 
-function classify(rel: string, cfg: AdapterConfig): { role: FileRole; skipReason?: string } {
+function classify(rel: string, cfg: EnumerateConfig): { role: FileRole; skipReason?: string } {
   for (const s of cfg.skip) {
     if (s.pattern.test(rel)) {
       if (/\.(test|spec)\./.test(rel)) return { role: 'test', skipReason: s.reason };
@@ -26,7 +37,7 @@ function classify(rel: string, cfg: AdapterConfig): { role: FileRole; skipReason
   return { role: 'config', skipReason: 'non-source file' };
 }
 
-export function enumerate(repoRoot: string, cfg: AdapterConfig): {
+export function enumerate(repoRoot: string, cfg: EnumerateConfig): {
   files: FileRecord[];
   coverage: Coverage;
 } {
